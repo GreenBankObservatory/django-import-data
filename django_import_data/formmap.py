@@ -4,17 +4,11 @@ from django.forms import ModelForm, ValidationError
 class FormMap:
     """Simple mapping of ModelForm -> field-mapped data"""
 
-    def __init__(
-        self, field_maps, form_class=None, form_defaults=None, form_kwargs=None
-    ):
-        self.field_maps = field_maps
-        self.form_class = form_class
+    field_maps = NotImplemented
+    form_class = NotImplemented
+    form_defaults = {}
 
-        if form_defaults:
-            self.form_defaults = form_defaults
-        else:
-            self.form_defaults = {}
-
+    def __init__(self, form_kwargs=None):
         if form_kwargs:
             self.form_kwargs = form_kwargs
         else:
@@ -22,6 +16,24 @@ class FormMap:
 
         self.unaliased_map = None
         # self._rendered_form = None
+
+        for field_map in self.field_maps:
+            if field_map.converter is None:
+                converter_name = f"handle_{'_'.join(field_map.from_fields)}"
+                try:
+                    field_map.converter = getattr(self, converter_name)
+                except AttributeError:
+                    if field_map.map_type == field_map.ONE_TO_ONE:
+                        field_map.converter = field_map.nop_converter
+                    else:
+                        import ipdb
+
+                        ipdb.set_trace()
+                        raise ValueError(
+                            f"No {converter_name} found; either define one "
+                            "or specify a different converter explicitly in "
+                            "your FieldMap instantiation"
+                        )
 
     def unalias(self, data):
         """Unalias!"""
@@ -50,6 +62,7 @@ class FormMap:
                 # Either get the unaliased value of from_field, or, if one isn't
                 # found, just use from_field itself
                 data_key = self.unaliased_map.get(from_field, from_field)
+                # print(f"data_key: {data_key}")
                 try:
                     from_field_data[data_key] = data[data_key]
                 except KeyError as error:
@@ -62,8 +75,7 @@ class FormMap:
                         # )
                         pass
 
-            # print(f"update {from_field_data}")
-            rendered.update(field_map.map(**from_field_data))
+            rendered.update(field_map.map(from_field_data))
             processed.update(from_field_data.keys())
 
         # print("processed")
@@ -71,7 +83,7 @@ class FormMap:
 
         unprocessed = set(data.keys()).difference(processed)
         if unprocessed:
-            message = f"Did not process the following data items: {unprocessed}"
+            message = f"Did not process the following data fields: {unprocessed}"
             if not allow_unprocessed:
                 raise ValueError(message)
             # print(f"WARNING: {message}")
@@ -101,8 +113,13 @@ class FormMap:
         if form.is_valid():
             return form.save()
 
+        useful_errors = [
+            {"field": field, "value": form[field].value(), "errors": errors}
+            for field, errors in form.errors.as_data().items()
+        ]
+
         raise ValidationError(
-            f"{self.form_class.__name__} is invalid; couldn't be saved! {form.errors.as_data()}"
+            f"{self.form_class.__name__} is invalid; couldn't be saved! {useful_errors}"
         )
 
     def get_known_from_fields(self):
@@ -121,6 +138,13 @@ class FormMap:
             for to_field in field_map.to_fields
         }
 
+    def get_name(self):
+        if self.form_class:
+            model = self.form_class.Meta.model.__name__
+            return f"FormMap<{model}>"
+
+        return "FormMap"
+
     def __repr__(self):
         field_maps_str = "\n  ".join([str(field_map) for field_map in self.field_maps])
-        return f"FormMap {{\n  {field_maps_str}\n}}"
+        return f"{self.get_name()} {{\n  {field_maps_str}\n}}"
