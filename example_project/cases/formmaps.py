@@ -5,7 +5,7 @@ from django_import_data import (
     OneToOneFieldMap,
     ManyToManyFieldMap,
 )
-from .forms import AttachmentForm, CaseForm, CaseGroupForm, PersonForm
+from .forms import CaseForm, PersonForm, StructureForm
 
 
 def coerce_positive_int(value):
@@ -19,14 +19,14 @@ def coerce_positive_int(value):
 class PersonFormMap(FormMap):
     form_class = PersonForm
 
-    def handle_first_name_middle_name_last_name(
+    def convert_first_name_middle_name_last_name(
         self, first_name, middle_name, last_name
     ):
-        print("handle_name!")
+        print("convert_name!")
         return " ".join([first_name, middle_name, last_name])
 
-    def handle_address(self, address):
-        print("handle_address!")
+    def convert_address(self, address):
+        print("convert_address!")
         return dict(
             zip(
                 ["street", "city", "state", "zip"],
@@ -54,12 +54,12 @@ class PersonFormMap(FormMap):
 
 
 class CaseFormMap(FormMap):
-    def handle_completed_type(self, completed, type):
+    def convert_completed_type(self, completed, type):
         status = "complete" if completed else "incomplete"
         type_, subtype = type.split(" ")
         return {"status": status, "type": type_, "subtype": subtype}
 
-    def handle_name(self, hmmm):
+    def convert_name(self, hmmm):
         pass
 
     form_class = CaseForm
@@ -71,19 +71,21 @@ class CaseFormMap(FormMap):
         # n:n
         ManyToManyFieldMap(
             from_fields=("completed", "type"),
-            # converter=handle_type,
+            # converter=convert_type,
             to_fields=("status", "type", "subtype"),
         ),
     ]
 
 
-class AttachmentFormMap(FormMap):
-    form_class = AttachmentForm
+class StructureFormMap(FormMap):
+    form_class = StructureForm
+    field_maps = (
+        ManyToOneFieldMap(
+            from_fields=("latitude", "longitude"),
+            to_field="location",
+            converter="convert_location",
+        ),
+    )
 
-    field_maps = [OneToOneFieldMap("letter1", "path")]
-
-
-class CaseGroupFormMap(FormMap):
-    form_class = CaseGroupForm
-
-    field_maps = []
+    def convert_location(self, latitude, longitude):
+        return {"location": (latitude, longitude)}

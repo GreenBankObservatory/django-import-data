@@ -14,11 +14,14 @@ This module contains all of the converters and the FieldMap class itself,
 as well as an dictionary of every known header to its mapped field -- "expanded"
 from the list of FieldMap instances
 """
+DEFAULT_CONVERTER = None
+DEFAULT_ALLOW_UNKNOWN = True
 
 
 class FieldMap:
     """Map a to_field to its associated from_fields, a converter function, and any aliases"""
 
+    # TODO: Distribute these to child classes
     ONE_TO_ONE = "1:1"
     ONE_TO_MANY = "1:*"
     MANY_TO_ONE = "*:1"
@@ -27,34 +30,65 @@ class FieldMap:
     map_type = NotImplemented
 
     def __init__(
-        self,
-        to_fields=None,
-        converter=None,
-        from_fields=None,
-        # aliases=None,
+        self, from_fields, to_fields, converter=DEFAULT_CONVERTER, aliases=None
     ):
+        # Strings are iterable, so will "work" for a large portion of the
+        # processing, but aren't ever actually correct. So, just catch this
+        # common error here and fail loudly up front
         if isinstance(to_fields, str) or isinstance(from_fields, str):
-            raise ValueError("to_fields and from_fields should not be strings!")
+            raise TypeError("to_fields and from_fields should not be strings!")
 
         self.to_fields = to_fields
         self.from_fields = from_fields
-        # Function to convert/clean data
+        # Function to convert/clean data. Only set if it is actually given!
+        # This allows child classes to make their own decisions regarding it
+        # if converter is not None:
         self.converter = converter
 
-        if isinstance(self.from_fields, dict):
-            self.aliases = {key: value for key, value in self.from_fields.items()}
-            self.aliases.update(self._invert_aliases(self.from_fields))
-            self.from_fields = list(self.from_fields.keys())
+        from_fields_is_compound = isinstance(from_fields, dict)
+
+        if aliases and from_fields_is_compound:
+            raise ValueError(
+                "If aliases is given, from_fields cannot be "
+                "a compound from_fields/aliases dict"
+            )
+
+        if aliases is not None:
+            self.aliases = aliases
+        # Aliases are given via dict, so handle this case
+        if isinstance(from_fields, dict):
+            self.aliases, self.from_fields = self._split_from_fields(from_fields)
         else:
-            # If no aliases exist, create them
-            self.aliases = {from_field: from_field for from_field in self.from_fields}
+            self.aliases = {}
 
-    def nop_converter(self, value):
-        """Perform no conversion; simply return value"""
-        return value
+        # if converter is None:
+        #     raise ValueError("converter must be given!")
+        # if not callable(converter):
+        #     raise ValueError("converter must be a callable!")
 
-    @staticmethod
-    def _invert_aliases(fields_to_aliases):
+        # This is a set of all possible mappable fields. That is, we can
+        # map a field directly (where no alias is defined), or we can map
+        # any of its aliases.
+        self.known_fields = set([*self.from_fields, *self.aliases])
+
+        if not self.map_type:
+            raise ValueError(
+                "map_type must be set! Typically this is done by a sub-class"
+            )
+
+    @classmethod
+    def _split_from_fields(cls, from_fields):
+        if not isinstance(from_fields, dict):
+            raise ValueError(
+                "_split_from_fields requires aliases to be passed "
+                "in as a dict of {from_field: aliases}"
+            )
+        aliases = cls._invert_aliases(from_fields)
+        from_fields = tuple(from_fields.keys())
+        return aliases, from_fields
+
+    @classmethod
+    def _invert_aliases(cls, fields_to_aliases):
         """Given dict of {field: aliases}, return dict of {alias: field}
 
         For example, if fields_to_aliases={
@@ -67,11 +101,12 @@ class FieldMap:
             'long.': 'longitude'
         }
         """
-        return {
-            alias: field
-            for field, aliases in fields_to_aliases.items()
-            for alias in aliases
-        }
+        inverted = {}
+        for field, aliases in fields_to_aliases.items():
+            if aliases is not None:
+                for alias in aliases:
+                    inverted[alias] = field
+        return inverted
 
     def __repr__(self):
         if len(self.from_fields) == 1:
@@ -98,18 +133,35 @@ class FieldMap:
         return f"FieldMap: {from_fields!r} [{from_}]—({converter})—[{to}] {to_fields!r}"
         # return f"FieldMap: {self.converter.__name__}({from_fields!r}) -> {to_fields!r}"
 
-    def check_unmapped_from_fields(self):
-        if self.aliases:
-            unmapped_from_fields = [key for key in data if key not in self.aliases]
-            if unmapped_from_fields:
-                raise ValueError(
-                    f"Found fields {unmapped_from_fields} with no known alias. "
-                    f"Known aliases: {self.aliases}"
-                )
+    def get_unknown_fields(self, data):
+        return {field for field in data if field not in self.known_fields}
 
-    def map(self, data):
-        ret = {self.aliases.get(key, key): value for key, value in data.items()}
-        # print("ret", ret)
+    def unalias(self, data, allow_unknown=DEFAULT_ALLOW_UNKNOWN):
+        unaliased = {}
+        for field, value in data.items():
+            if field in self.known_fields:
+                # Get the unaliased field, or, if there's no alias, just
+                # use the field name as is
+                field = self.aliases.get(field, field)
+                unaliased[field] = value
+            else:
+                if not allow_unknown:
+                    raise ValueError(
+                        f"Field {field} is not a known field "
+                        f"({self.known_fields})! To suppress this error, "
+                        "pass allow_unknown=True"
+                    )
+        return unaliased
+
+    # TODO: This has no place here... this should _perhaps_ perform
+    # core functionality, but most rendering should now be distributed
+    # to child classes
+    def render(
+        self, data, converter=DEFAULT_CONVERTER, allow_unknown=DEFAULT_ALLOW_UNKNOWN
+    ):
+        if converter is None:
+            converter = self.converter
+        ret = self.unalias(data, allow_unknown=allow_unknown)
         if not ret:
             # print(f"WARNING: Failed to produce value for {data}")
             return {}
@@ -136,21 +188,49 @@ class FieldMap:
 class OneToOneFieldMap(FieldMap):
     map_type = FieldMap.ONE_TO_ONE
 
-    def __init__(self, from_field, to_field=None, converter=None):
+    def __init__(self, from_field, to_field=None, converter=DEFAULT_CONVERTER):
+        # If from_field is a dict then it contains a single field along with its aliases
+        if isinstance(from_field, dict):
+            if len(from_field) != 1:
+                raise ValueError(
+                    "If from_field is given as a dict, "
+                    "it must contain only one member!"
+                )
+            # This means that it can be directly set as our from_fields
+            from_fields = from_field
+            # But we need to pull out its key (the field designation) to
+            # populate our to_field
+            to_field = next(iter(from_field))
+        else:
+            # If it isn't a dict, assume that it is some sort of sensible
+            # atomic value and put it in a list
+            from_fields = [from_field]
+
+        # If to_field still hasn't been set, just set it
+        # directly from from_field
         if to_field is None:
             to_field = from_field
 
-        if isinstance(from_field, dict):
-            from_fields = from_field
-        else:
-            from_fields = [from_field]
+        # TODO: Shouldn't this conflict with the convert_foo logic in formmap init?
+        if converter is None:
+            converter = self.nop_converter
         super().__init__(
             from_fields=from_fields, to_fields=[to_field], converter=converter
         )
 
-    def map(self, data):
-        ret = {self.aliases.get(key, key): value for key, value in data.items()}
-        # Handle case where we don't have any mappings
+    # TODO: Consider having this return a dict?
+    def nop_converter(self, value):
+        """Perform no conversion; simply return value"""
+        return value
+
+    def render(
+        self, data, converter=DEFAULT_CONVERTER, allow_unknown=DEFAULT_ALLOW_UNKNOWN
+    ):
+        if converter is None:
+            converter = self.converter
+        ret = self.unalias(data, allow_unknown=allow_unknown)
+        # Handle case where we don't have any mappings (need to bail early
+        # to avoid breaking logic below)
         if not ret:
             return {}
         # Handle the simple 1:1/n:1 cases here to save on boilerplate externally
@@ -159,19 +239,26 @@ class OneToOneFieldMap(FieldMap):
         # converted values
         to_field = self.to_fields[0]
         from_field_value = next(iter(ret.values()))
-        return {to_field: self.converter(from_field_value)}
+        converted = self.converter(from_field_value)
+        if not isinstance(converted, dict):
+            return {to_field: converted}
+        return converted
 
 
 class ManyToOneFieldMap(FieldMap):
     map_type = FieldMap.MANY_TO_ONE
 
-    def __init__(self, from_fields, to_field, converter=None):
+    def __init__(self, from_fields, to_field, converter=DEFAULT_CONVERTER):
         super().__init__(
             from_fields=from_fields, to_fields=[to_field], converter=converter
         )
 
-    def map(self, data):
-        ret = {self.aliases.get(key, key): value for key, value in data.items()}
+    def render(
+        self, data, converter=DEFAULT_CONVERTER, allow_unknown=DEFAULT_ALLOW_UNKNOWN
+    ):
+        if converter is None:
+            converter = self.converter
+        ret = self.unalias(data, allow_unknown=allow_unknown)
         # Allow for the existence of converters that don't return
         # {to_field: converted values} dicts, and instead simply return
         # converted values
@@ -185,7 +272,7 @@ class ManyToOneFieldMap(FieldMap):
 class OneToManyFieldMap(FieldMap):
     map_type = FieldMap.ONE_TO_MANY
 
-    def __init__(self, from_field, to_fields, converter=None):
+    def __init__(self, from_field, to_fields, converter=DEFAULT_CONVERTER):
         if isinstance(from_field, dict):
             from_fields = from_field
         else:

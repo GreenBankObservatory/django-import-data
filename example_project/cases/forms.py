@@ -1,6 +1,6 @@
 from django import forms
 
-from .models import Person, Attachment, Case, CaseGroup
+from .models import Structure, Person, Case
 
 
 class PersonForm(forms.ModelForm):
@@ -9,19 +9,13 @@ class PersonForm(forms.ModelForm):
         fields = ("name", "phone", "email")
 
 
-class AttachmentForm(forms.ModelForm):
-    class Meta:
-        model = Attachment
-        fields = ("path",)
-
-
 class CaseForm(forms.ModelForm):
     class Meta:
         model = Case
-        fields = ("applicant", "attachments", "group")
+        fields = ("case_num", "applicant")
 
 
-class CaseGroupForm(forms.ModelForm):
+class StructureForm(forms.ModelForm):
     class Meta:
-        model = CaseGroup
-        fields = ("name",)
+        model = Structure
+        fields = ("location",)

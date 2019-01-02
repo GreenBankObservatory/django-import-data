@@ -6,18 +6,22 @@ class Person(models.Model):
     phone = models.CharField(max_length=256, blank=True)
     email = models.EmailField(null=True, blank=True)
 
-
-class Attachment(models.Model):
-    path = models.CharField(max_length=256, unique=True)
+    def __str__(self):
+        return f"{self.name}; {self.phone}; {self.email}"
 
 
 class Case(models.Model):
-    applicant = models.ForeignKey("Person", on_delete=models.CASCADE)
-    attachments = models.ManyToManyField("Attachment", related_name="cases", blank=True)
-    group = models.ForeignKey(
-        "CaseGroup", on_delete=models.CASCADE, related_name="cases"
+    case_num = models.PositiveIntegerField()
+    applicant = models.ForeignKey(
+        "Person", on_delete=models.CASCADE, null=True, blank=True
     )
 
+    def __str__(self):
+        return f"#{self.case_num} ({self.applicant})"
 
-class CaseGroup(models.Model):
-    name = models.CharField(max_length=256, blank=True)
+
+class Structure(models.Model):
+    location = models.CharField(max_length=256)
+
+    def __str__(self):
+        return str(self.location)

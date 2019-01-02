@@ -1,8 +1,14 @@
 from unittest import TestCase
 
 from django.forms import CharField, Form
-
-from . import FormMap, FieldMap
+from . import (
+    FormMap,
+    FieldMap,
+    ManyToManyFieldMap,
+    OneToManyFieldMap,
+    ManyToOneFieldMap,
+    OneToOneFieldMap,
+)
 from .converters import handle_sectors, handle_location, handle_person, make_uppercase
 
 
@@ -19,38 +25,37 @@ class FooForm(Form):
     location = CharField()
 
 
-FooFormMap = FormMap(
-    field_maps=[
+class FooFormMap(FormMap):
+    field_maps = [
         # n:n
-        FieldMap(
+        ManyToManyFieldMap(
             from_fields={"gender": ("gen",), "name": ("name", "n")},
             converter=handle_person,
             to_fields=("title", "first_name", "middle_name", "last_name"),
         ),
         # 1:n
-        FieldMap(
+        OneToManyFieldMap(
             from_field="sectors",
             converter=handle_sectors,
             to_fields=("sector_a", "sector_b", "sector_c"),
         ),
         # n:1
-        FieldMap(
+        ManyToOneFieldMap(
             from_fields={"latitude": ("LAT", "lat"), "longitude": ("LONG", "long")},
             converter=handle_location,
             to_field="location",
         ),
         # 1:1, no converter
-        FieldMap(from_field="foo", to_field="bar"),
+        OneToOneFieldMap(from_field="foo", to_field="bar"),
         # 1:1, with converter
-        FieldMap(from_field="flim", to_field="flarm", converter=make_uppercase),
-    ],
-    form_class=FooForm,
-)
+        OneToOneFieldMap(from_field="flim", to_field="flarm", converter=make_uppercase),
+    ]
+    form_class = FooForm
 
 
 class FormMapTestCase(TestCase):
     def setUp(self):
-        self.form_map = FooFormMap
+        self.form_map = FooFormMap()
 
     def test_complex(self):
         data = {
@@ -63,9 +68,6 @@ class FormMapTestCase(TestCase):
             "unmapped": "doesn't matter",
             "flim": "abcd",
         }
-        # with self.assertRaises(ValueError):
-        #     # This should fail because we have an un-mapped header
-        #     form_map.render_dict(data, allow_unprocessed=False)
         actual = self.form_map.render_dict(data)
         expected = {
             "title": "Mr.",
@@ -88,11 +90,13 @@ class FormMapTestCase(TestCase):
             "foo": "blarg",
             "lat": "33",
             "long": "34",
-            "unmapped": "doesn't matter",
+            "unmapped1": "doesn't matter",
+            "unmapped2": "doesn't matter",
         }
-        with self.assertRaises(ValueError):
-            # This should fail because we have an un-mapped header
-            self.form_map.render_dict(data, allow_unprocessed=False)
+        # Error message should include names of unmapped headers as a set
+        with self.assertRaisesRegex(ValueError, str({"unmapped1", "unmapped2"})):
+            # This should fail because we have un-mapped headers
+            self.form_map.render_dict(data, allow_unknown=False)
         actual = self.form_map.render_dict(data)
         expected = {
             "title": "Mr.",
@@ -123,14 +127,66 @@ class FormMapTestCase(TestCase):
         }
         self.assertEqual(actual, expected)
 
-    def test_unalias(self):
-        headers = {"gender", "name", "foo", "lat", "long", "unmapped"}
-        actual = self.form_map.unalias(headers)
-        expected = {
-            "gender": "gender",
-            "name": "name",
-            "latitude": "lat",
-            "longitude": "long",
-            "foo": "foo",
-        }
+    def test_get_unknown_fields(self):
+        data = {"flamingo": "bar", "pidgeon": "bin"}
+        actual = self.form_map.get_unknown_fields(data)
+        expected = {"flamingo", "pidgeon"}
         self.assertEqual(actual, expected)
+
+    def test_check_first_render_for_errors(self):
+        data = {
+            "gender": "male",
+            "name": "foo bar baz",
+            "foo": "blarg",
+            "lat": "33",
+            "long": "34",
+            "unmapped1": "doesn't matter",
+            "unmapped2": "doesn't matter",
+        }
+
+        # Our form_map should be set to check the next render for errors
+        self.assertTrue(self.form_map.check_next_render_for_errors)
+        # But it should be set to check only the first (i.e. not every one)
+        self.assertFalse(self.form_map.check_every_render_for_errors)
+        # Error message should include names of unmapped headers as a set
+        with self.assertRaisesRegex(ValueError, str({"unmapped1", "unmapped2"})):
+            # This should fail because we have un-mapped headers
+            self.form_map.render_dict(data, allow_unknown=False)
+
+        # Our form_map should now be set to NOT check the next render for errors
+        self.assertFalse(self.form_map.check_next_render_for_errors)
+        # And should still be set to check only the first
+        self.assertFalse(self.form_map.check_every_render_for_errors)
+        self.form_map.render_dict(data, allow_unknown=False)
+
+    def test_check_every_render_for_errors(self):
+        data = {
+            "gender": "male",
+            "name": "foo bar baz",
+            "foo": "blarg",
+            "lat": "33",
+            "long": "34",
+            "unmapped1": "doesn't matter",
+            "unmapped2": "doesn't matter",
+        }
+
+        # Set this to true; we want to check every render
+        self.form_map.check_every_render_for_errors = True
+
+        # Our form_map should be set to check the next render for errors
+        self.assertTrue(self.form_map.check_next_render_for_errors)
+        # But it should be set to check only the first (i.e. not every one)
+        self.assertTrue(self.form_map.check_every_render_for_errors)
+        # Error message should include names of unmapped headers as a set
+        with self.assertRaisesRegex(ValueError, str({"unmapped1", "unmapped2"})):
+            # This should fail because we have un-mapped headers
+            self.form_map.render_dict(data, allow_unknown=False)
+
+        # Our form_map should be STILL set to check the next render for errors
+        self.assertTrue(self.form_map.check_next_render_for_errors)
+        # And it should STILL be set to check only the first (i.e. not every one)
+        self.assertTrue(self.form_map.check_every_render_for_errors)
+        # Error message should include names of unmapped headers as a set
+        with self.assertRaisesRegex(ValueError, str({"unmapped1", "unmapped2"})):
+            # This should fail because we have un-mapped headers
+            self.form_map.render_dict(data, allow_unknown=False)

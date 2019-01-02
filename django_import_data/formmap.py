@@ -1,14 +1,16 @@
+import itertools
+
 from django.forms import ModelForm, ValidationError
 
 
 class FormMap:
     """Simple mapping of ModelForm -> field-mapped data"""
 
-    field_maps = NotImplemented
+    field_maps = [NotImplemented]
     form_class = NotImplemented
     form_defaults = {}
 
-    def __init__(self, form_kwargs=None):
+    def __init__(self, form_kwargs=None, check_every_render_for_errors=False):
         if form_kwargs:
             self.form_kwargs = form_kwargs
         else:
@@ -18,84 +20,55 @@ class FormMap:
         # self._rendered_form = None
 
         for field_map in self.field_maps:
-            if field_map.converter is None:
-                converter_name = f"handle_{'_'.join(field_map.from_fields)}"
+            if not callable(field_map.converter):
+                if field_map.converter:
+                    converter_name = field_map.converter
+                else:
+                    converter_name = f"convert_{'_'.join(field_map.from_fields)}"
                 try:
                     field_map.converter = getattr(self, converter_name)
                 except AttributeError:
-                    if field_map.map_type == field_map.ONE_TO_ONE:
-                        field_map.converter = field_map.nop_converter
-                    else:
-                        import ipdb
+                    raise ValueError(
+                        f"No {converter_name} found; either define one "
+                        "or specify a different converter explicitly in "
+                        "your FieldMap instantiation"
+                    )
 
-                        ipdb.set_trace()
-                        raise ValueError(
-                            f"No {converter_name} found; either define one "
-                            "or specify a different converter explicitly in "
-                            "your FieldMap instantiation"
-                        )
+        self.known_fields = self.get_known_from_fields()
+        # If this is set to True we will check every render call for
+        # non-critical errors (such as unmapped fields). Otherwise we will check only the first
+        self.check_every_render_for_errors = check_every_render_for_errors
+        # Initialize this to True so that at least the first iteration
+        # is checked. It might then be set to False depending on the above
+        self.check_next_render_for_errors = True
 
-    def unalias(self, data):
-        """Unalias!"""
-
-        # TODO: Error checking. Shouldn't have more than one match per alias or something like that
-        unaliased = {}
-        for field_map in self.field_maps:
-            for key in data:
-                for from_field_alias, from_field_internal in field_map.aliases.items():
-                    if key == from_field_alias:
-                        unaliased[from_field_internal] = from_field_alias
-
-        return unaliased
-
-    def render_dict(self, data, allow_unprocessed=True, allow_missing=True):
+    def render_dict(self, data, allow_unknown=True):
         rendered = {}
-        processed = set()
 
-        if not self.unaliased_map:
-            self.unaliased_map = self.unalias(data)
+        if self.check_next_render_for_errors:
+            # Turn off error checking now unless user has specified
+            # that we need to check every row
+            if not self.check_every_render_for_errors:
+                self.check_next_render_for_errors = False
+            if not allow_unknown:
+                unknown = self.get_unknown_fields(data)
+                raise ValueError(f"Unknown fields: {unknown}")
 
         for field_map in self.field_maps:
-            from_field_data = {}
-
-            for from_field in field_map.from_fields:
-                # Either get the unaliased value of from_field, or, if one isn't
-                # found, just use from_field itself
-                data_key = self.unaliased_map.get(from_field, from_field)
-                # print(f"data_key: {data_key}")
-                try:
-                    from_field_data[data_key] = data[data_key]
-                except KeyError as error:
-                    if not allow_missing:
-                        raise error
-                    else:
-                        # print(
-                        # f"WARNING: Expected key {data_key!r} is missing "
-                        # f"from data: {data.keys()}"
-                        # )
-                        pass
-
-            rendered.update(field_map.map(from_field_data))
-            processed.update(from_field_data.keys())
-
-        # print("processed")
-        # pprint(processed)
-
-        unprocessed = set(data.keys()).difference(processed)
-        if unprocessed:
-            message = f"Did not process the following data fields: {unprocessed}"
-            if not allow_unprocessed:
-                raise ValueError(message)
-            # print(f"WARNING: {message}")
+            # NOTE: We do NOT pass allow_unknown to field_map. It
+            # is essential to the functionality of our logic here
+            # that it simply ignore all values it doesn't know about
+            # Error checking is instead done above
+            rendered.update(field_map.render(data))
 
         return rendered
 
-    def render(self, data, extra=None, allow_unprocessed=True, allow_missing=True):
+    def render(self, data, extra=None, allow_unknown=True):
         if not self.form_class:
             raise ValueError("No FormMap.form_class defined; cannot render a form!")
         if extra is None:
             extra = {}
-        rendered = self.render_dict(data, allow_unprocessed, allow_missing)
+        rendered = self.render_dict(data, allow_unknown)
         return self.form_class(
             {**self.form_defaults, **extra, **rendered}, **self.form_kwargs
         )
@@ -125,11 +98,13 @@ class FormMap:
     def get_known_from_fields(self):
         """Return set of all known from_fields, including aliases thereof"""
 
-        return {
-            from_field
-            for field_map in self.field_maps
-            for from_field in list(field_map.aliases.keys()) + field_map.from_fields
-        }
+        known_fields = set()
+        for field_map in self.field_maps:
+            known_fields.update(field_map.known_fields)
+        return known_fields
+
+    def get_unknown_fields(self, data):
+        return {field for field in data if field not in self.known_fields}
 
     def get_known_to_fields(self):
         return {
