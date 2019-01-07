@@ -4,10 +4,13 @@ from django.test import TestCase
 
 from django_import_data import FormMapSet
 from django_import_data.formmapset import flatten_dependencies
+from django.contrib.contenttypes.models import ContentType
 
 from .models import Case, Person, Structure
 from .formmaps import CaseFormMap, PersonFormMap, StructureFormMap
 from .forms import StructureForm
+from django_import_data.models import GenericAuditGroup, GenericAudit
+
 
 row = {
     "first_name": "Foo",
@@ -80,3 +83,13 @@ class TestFormMaps(TestCase):
 #         print(sf.data)
 #         print(sf.is_valid())
 #         print(sf.errors.as_data())
+
+
+class TestCaseAuditGroup(TestCase):
+    # def setUp(self):
+    #     self.case = Case.objects.create(case_num=123)
+
+    def test_foo(self):
+        case = Case.objects.create_with_audit(case_num=123)
+        self.assertIsInstance(case, Case)
+        self.assertIsInstance(case.audit_group, GenericAuditGroup)

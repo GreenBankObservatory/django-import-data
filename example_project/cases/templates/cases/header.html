@@ -1,0 +1,24 @@
+<nav class="navbar navbar-expand-lg navbar-light bg-light">
+  <a class="navbar-brand" href="/">Example Project</a>
+  <ul class="navbar-nav mr-auto">
+    <li class="nav-item">
+      <a class="nav-link" href={% url "case_list" %}>Cases</a>
+    </li>
+
+    <li class="nav-item">
+      <a class="nav-link" href={% url "person_list" %}>People</a>
+    </li>
+
+    <li class="nav-item">
+      <a class="nav-link" href={% url "structure_list" %}>Structures</a>
+    </li>
+
+    <li class="nav-item">
+      <a class="nav-link" href={% url "genericauditgroup_list" %}>Audit Groups</a>
+    </li>
+
+    <li class="nav-item">
+      <a class="nav-link text-info" href={% url "admin:index" %}>Admin</a>
+    </li>
+  </ul>
+</nav>

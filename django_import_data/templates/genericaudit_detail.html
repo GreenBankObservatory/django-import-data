@@ -1,0 +1,15 @@
+{% extends "cases/base.html" %}
+{% load django_import_data_tags %}
+
+{% block content %}
+
+<h1>{{ genericaudit }}</h1>
+
+<p><a href={% url "create_from_audit" genericaudit.audit_group.content_type.model genericaudit.id %}>Create {{ genericaudit.audit_group.content_type.model }} from Audit {{ genericaudit.id }}</a></p>
+
+<h2>Original Values</h2>
+{{ genericaudit.auditee_fields | json | safe }}
+
+<h2>Errors</h2>
+{{ genericaudit.errors | json | safe }}
+{% endblock %}

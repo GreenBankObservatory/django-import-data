@@ -9,7 +9,10 @@ from .forms import CaseForm, PersonForm, StructureForm
 
 
 def coerce_positive_int(value):
-    num = int(value)
+    try:
+        num = int(value)
+    except ValueError:
+        return value
     if num < 1:
         return None
 
@@ -50,6 +53,7 @@ class PersonFormMap(FormMap):
         ),
         # 1:1
         OneToOneFieldMap(from_field="email", to_field="email"),
+        OneToOneFieldMap("phone"),
     ]
 
 

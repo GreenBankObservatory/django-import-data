@@ -1,4 +1,4 @@
-import itertools
+import json
 
 from django.forms import ModelForm, ValidationError
 
@@ -73,18 +73,59 @@ class FormMap:
             {**self.form_defaults, **extra, **rendered}, **self.form_kwargs
         )
 
-    def save(self, data, **kwargs):
-        # Assume that if data is a ModelForm instance, it is an already-rendered
-        # Form.
+    # TODO: handle common functionality
+    def save_with_audit(self, data, **kwargs):
+        # TODO: Well this is obviously stupid
+        from django.contrib.contenttypes.models import ContentType
+        from .models import GenericAuditGroup, GenericAudit
+
         if isinstance(data, ModelForm):
+            # Assume that if data is a ModelForm instance, it is an already-rendered
+            # Form.
             form = data
-        # Thus, if it is _not_ a ModelForm instance, we need to render it
-        # ourselves
         else:
+            # Thus, if it is _not_ a ModelForm instance, we need to render it
+            # ourselves
             form = self.render(data, **kwargs)
 
         if form.is_valid():
-            return form.save()
+            instance = form.save()
+            return instance, None
+
+        print("ERRO INC")
+
+        useful_errors = [
+            {"field": field, "value": form[field].value(), "errors": errors}
+            for field, errors in form.errors.as_data().items()
+        ]
+
+        audit_group = GenericAuditGroup.objects.create(
+            content_type=ContentType.objects.get_for_model(self.form_class.Meta.model),
+            object_id=None,
+        )
+        audit = GenericAudit.objects.create(
+            audit_group=audit_group, auditee_fields=form.data, errors=useful_errors
+        )
+
+        print(f"Created GAG: {audit_group}")
+        print(f"Created GA: {audit}, {audit.errors}")
+
+        return None, audit
+
+    # TODO: handle common functionality
+    def save(self, data, **kwargs):
+        if isinstance(data, ModelForm):
+            # Assume that if data is a ModelForm instance, it is an already-rendered
+            # Form.
+            form = data
+        else:
+            # Thus, if it is _not_ a ModelForm instance, we need to render it
+            # ourselves
+            form = self.render(data, **kwargs)
+
+        if form.is_valid():
+            instance = form.save()
+            return instance
 
         useful_errors = [
             {"field": field, "value": form[field].value(), "errors": errors}

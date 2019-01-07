@@ -1,0 +1,24 @@
+{% extends "cases/base.html" %}
+{% load django_import_data_tags %}
+
+{% block content %}
+
+<h1>{{ genericauditgroup }}</h1>
+
+{% if genericauditgroup.auditee.get_absolute_url %}
+<h2>{{ genericauditgroup.auditee | model_name }} Info</h2>
+<p><a href={{ genericauditgroup.auditee.get_absolute_url }}>View {{ genericauditgroup.auditee | model_name }}</a></p>
+<p>{{ genericauditgroup.auditee }}</p>
+{% else %}
+<p>
+    No {{ genericauditgroup.content_type }} has been successfully created yet.
+    <a href={% url "create_from_audit" genericauditgroup.content_type.model genericauditgroup.audits.last.id %}>Create {{ genericauditgroup.content_type.model }} from most recent Audit {{ genericauditgroup.audits.last.id }}</a>
+</p>
+{% endif %}
+
+
+
+<h2>Audit History ({{ genericauditgroup.audits.count }})</h2>
+{% include "genericaudit_list_bare.html" with genericaudit_list=genericauditgroup.audits.all %}
+
+{% endblock %}

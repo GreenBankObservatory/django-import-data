@@ -1,0 +1,13 @@
+{% extends "cases/base.html" %}
+{% load django_import_data_tags %}
+
+{% block content %}
+
+<h1>{{ form | model_name }} Form</h1>
+
+<form method="POST">{% csrf_token %}
+    {{ form.as_p }}
+    <input type="submit" name="Create">
+</form>
+
+{% endblock %}

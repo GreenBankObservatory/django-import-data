@@ -25,7 +25,7 @@ SECRET_KEY = "_f@d=h5*a)%-ol#6#%2h*u9!mu@w5c(#4mrg70y668_1&0%jow"
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ["galileo"]
 
 
 # Application definition
@@ -38,6 +38,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "django_extensions",
+    "django_import_data",
     "cases",
 ]
 
@@ -74,11 +75,22 @@ WSGI_APPLICATION = "example_project.wsgi.application"
 
 # Database
 # https://docs.djangoproject.com/en/2.1/ref/settings/#databases
+import getpass
 
+user = getpass.getuser()
 DATABASES = {
+    # "default": {
+    #     "ENGINE": "django.db.backends.sqlite3",
+    #     "NAME": os.path.join(BASE_DIR, "db.sqlite3"),
+    #     "TEST": {"NAME": ":memory:"},
+    # }
     "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": os.path.join(BASE_DIR, "db.sqlite3"),
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": f"django_import_data_{user}_dev",
+        "USER": user,
+        "PASSWORD": "",
+        "HOST": "galileo.gb.nrao.edu",
+        "PORT": "5432",
     }
 }
 

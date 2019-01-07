@@ -1,0 +1,5 @@
+<ul>
+    {% for genericaudit in genericaudit_list %}
+        <li><a href={{genericaudit.get_absolute_url}}>{{ genericaudit }}</a></li>
+    {% endfor %}
+</ul>

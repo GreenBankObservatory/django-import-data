@@ -1,0 +1,11 @@
+{% extends "cases/base.html" %}
+{% load django_import_data_tags %}
+
+{% block content %}
+
+<h1>{{ object | model_name }} Detail</h1>
+{{ object }}
+
+{% include "genericaudit_list_bare.html" with genericaudit_list=object.audit_group.audits.all %}
+
+{% endblock %}

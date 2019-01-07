@@ -1,0 +1,10 @@
+{% extends "cases/base.html" %}
+
+{% block content %}
+
+<h1>Audits</h1>
+
+{% include "genericaudit_list_bare.html" with genericaudit_list=object.audit_group.audits.all %}
+
+{% endblock %}
+

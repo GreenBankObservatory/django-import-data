@@ -8,3 +8,4 @@ from .fieldmap import (
 )
 from .formmap import FormMap
 from .formmapset import FormMapSet
+from .management.commands._base_import import BaseImportCommand

@@ -1,0 +1,15 @@
+{% extends "cases/base.html" %}
+{% load django_import_data_tags %}
+
+{% block content %}
+
+<h1>{{ object_list | qs_name }} Index</h1>
+{{ object }}
+
+<ul>
+    {% for object in object_list %}
+        <li><a href={{object.get_absolute_url}}>{{ object }}</a></li>
+    {% endfor %}
+</ul>
+
+{% endblock %}
