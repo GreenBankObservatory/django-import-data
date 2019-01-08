@@ -1,3 +1,5 @@
+import json
+
 from django.forms import ModelForm, ValidationError
 
 
@@ -72,8 +74,7 @@ class FormMap:
             try:
                 rendered.update(field_map.render(data))
             except ValueError as error:
-                errors[field_map] = repr(error)
-                # print(f"!!!!!!!!!Error: {error}")
+                errors[repr(field_map)] = repr(error)
 
         return rendered, errors
 
@@ -95,7 +96,8 @@ class FormMap:
         )
 
     # TODO: handle common functionality
-    def save_with_audit(self, data, **kwargs):
+    # TODO: Merge with save; use row_audit as differentiation
+    def save_with_audit(self, data, row_audit, **kwargs):
         # TODO: Well this is obviously stupid
         from django.contrib.contenttypes.models import ContentType
         from .models import GenericAuditGroup, GenericAudit
@@ -120,11 +122,12 @@ class FormMap:
             "conversion_errors": conversion_errors,
             "form_errors": useful_form_errors,
         }
-
         audit_group = GenericAuditGroup.objects.create(
+            row_audit=row_audit,
             content_type=ContentType.objects.get_for_model(self.form_class.Meta.model),
             object_id=None,
         )
+        print(f"Created audit group {audit_group} for row_audit {row_audit}")
         audit = GenericAudit.objects.create(
             audit_group=audit_group, auditee_fields=form.data, errors=all_errors
         )

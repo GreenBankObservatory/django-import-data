@@ -1,0 +1,12 @@
+{% extends "cases/base.html" %}
+{% load django_import_data_tags %}
+
+{% block content %}
+
+<h1>{{ rowaudit }}</h1>
+
+{{ rowaudit.data | json | safe }}
+
+{% include "list_base.html" with object_list=rowaudit.audits.all %}
+
+{% endblock %}

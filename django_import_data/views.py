@@ -8,7 +8,7 @@ from django.views.generic import CreateView
 from django.shortcuts import get_object_or_404, redirect
 from django.forms import ValidationError
 
-from .models import GenericAuditGroup, GenericAudit
+from .models import GenericAuditGroup, GenericAudit, RowAudit
 
 
 class CreateFromAuditView(CreateView):
@@ -63,3 +63,13 @@ class GenericAuditDetailView(DetailView):
 class GenericAuditListView(ListView):
     model = GenericAudit
     template_name = "genericaudit_list.html"
+
+
+class RowAuditDetailView(DetailView):
+    model = RowAudit
+    template_name = "rowaudit_detail.html"
+
+
+class RowAuditListView(ListView):
+    model = RowAudit
+    template_name = "rowaudit_list.html"

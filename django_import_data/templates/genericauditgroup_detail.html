@@ -5,6 +5,11 @@
 
 <h1>{{ genericauditgroup }}</h1>
 
+<h2>Original Row</h2>
+<div class="json">
+    {{ genericauditgroup.row_audit.data | json | safe }}
+</div>
+
 {% if genericauditgroup.auditee.get_absolute_url %}
 <h2>{{ genericauditgroup.auditee | model_name }} Info</h2>
 <p><a href={{ genericauditgroup.auditee.get_absolute_url }}>View {{ genericauditgroup.auditee | model_name }}</a></p>

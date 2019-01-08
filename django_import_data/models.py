@@ -95,7 +95,18 @@ class BaseAudit(TrackedModel):
         return f"Audit {self.created_on} {self.imported_from} ({self.status})"
 
 
+class RowAudit(models.Model):
+    data = JSONField()
+    # name = models.CharField(max_length=256)
+
+    def get_absolute_url(self):
+        return reverse("rowaudit_detail", args=[str(self.id)])
+
+
 class GenericAuditGroup(BaseAuditGroup):
+    row_audit = models.ForeignKey(
+        RowAudit, related_name="audits", on_delete=models.CASCADE
+    )
     content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
     object_id = models.PositiveIntegerField(null=True)
     auditee = GenericForeignKey()
@@ -106,7 +117,10 @@ class GenericAuditGroup(BaseAuditGroup):
         unique_together = (("content_type", "object_id"),)
 
     def __str__(self):
-        return f"Audit Group for {self.content_type} {self.auditee} ({self.status})"
+        if self.auditee:
+            return f"Audit Group for {self.content_type} {self.auditee} ({self.status})"
+
+        return f"Audit Group for {self.content_type} ({self.status})"
 
     def get_absolute_url(self):
         return reverse("genericauditgroup_detail", args=[str(self.id)])
