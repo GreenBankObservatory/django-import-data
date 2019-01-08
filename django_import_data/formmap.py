@@ -1,6 +1,15 @@
-import json
-
 from django.forms import ModelForm, ValidationError
+
+
+def get_useful_form_errors(form):
+    return [
+        {
+            "field": field,
+            "value": form[field].value(),
+            "errors": [repr(error) for error in errors],
+        }
+        for field, errors in form.errors.as_data().items()
+    ]
 
 
 class FormMap:
@@ -44,6 +53,7 @@ class FormMap:
 
     def render_dict(self, data, allow_unknown=True):
         rendered = {}
+        errors = {}
 
         if self.check_next_render_for_errors:
             # Turn off error checking now unless user has specified
@@ -59,18 +69,29 @@ class FormMap:
             # is essential to the functionality of our logic here
             # that it simply ignore all values it doesn't know about
             # Error checking is instead done above
-            rendered.update(field_map.render(data))
+            try:
+                rendered.update(field_map.render(data))
+            except ValueError as error:
+                errors[field_map] = repr(error)
+                # print(f"!!!!!!!!!Error: {error}")
 
-        return rendered
+        return rendered, errors
 
-    def render(self, data, extra=None, allow_unknown=True):
+    def render(
+        self, data, extra=None, allow_unknown=True, allow_conversion_errors=True
+    ):
         if not self.form_class:
             raise ValueError("No FormMap.form_class defined; cannot render a form!")
         if extra is None:
             extra = {}
-        rendered = self.render_dict(data, allow_unknown)
-        return self.form_class(
-            {**self.form_defaults, **extra, **rendered}, **self.form_kwargs
+        rendered, errors = self.render_dict(data, allow_unknown)
+        if errors and not allow_conversion_errors:
+            raise ValueError(f"One or more conversion errors: {errors}")
+        return (
+            self.form_class(
+                {**self.form_defaults, **extra, **rendered}, **self.form_kwargs
+            ),
+            errors,
         )
 
     # TODO: handle common functionality
@@ -83,32 +104,30 @@ class FormMap:
             # Assume that if data is a ModelForm instance, it is an already-rendered
             # Form.
             form = data
+            conversion_errors = {}
         else:
             # Thus, if it is _not_ a ModelForm instance, we need to render it
             # ourselves
-            form = self.render(data, **kwargs)
+            form, conversion_errors = self.render(data, **kwargs)
 
         if form.is_valid():
             instance = form.save()
             return instance, None
 
-        print("ERRO INC")
+        useful_form_errors = get_useful_form_errors(form)
 
-        useful_errors = [
-            {"field": field, "value": form[field].value(), "errors": errors}
-            for field, errors in form.errors.as_data().items()
-        ]
+        all_errors = {
+            "conversion_errors": conversion_errors,
+            "form_errors": useful_form_errors,
+        }
 
         audit_group = GenericAuditGroup.objects.create(
             content_type=ContentType.objects.get_for_model(self.form_class.Meta.model),
             object_id=None,
         )
         audit = GenericAudit.objects.create(
-            audit_group=audit_group, auditee_fields=form.data, errors=useful_errors
+            audit_group=audit_group, auditee_fields=form.data, errors=all_errors
         )
-
-        print(f"Created GAG: {audit_group}")
-        print(f"Created GA: {audit}, {audit.errors}")
 
         return None, audit
 
@@ -116,24 +135,26 @@ class FormMap:
     def save(self, data, **kwargs):
         if isinstance(data, ModelForm):
             # Assume that if data is a ModelForm instance, it is an already-rendered
-            # Form.
+            # Form. This also implies that there are no conversion errors
             form = data
+            conversion_errors = {}
         else:
             # Thus, if it is _not_ a ModelForm instance, we need to render it
             # ourselves
-            form = self.render(data, **kwargs)
+            form, conversion_errors = self.render(data, **kwargs)
 
         if form.is_valid():
             instance = form.save()
             return instance
 
-        useful_errors = [
-            {"field": field, "value": form[field].value(), "errors": errors}
-            for field, errors in form.errors.as_data().items()
-        ]
+        useful_form_errors = get_useful_form_errors(form)
+        all_errors = {
+            "conversion_errors": conversion_errors,
+            "form_errors": useful_form_errors,
+        }
 
         raise ValidationError(
-            f"{self.form_class.__name__} is invalid; couldn't be saved! {useful_errors}"
+            f"{self.form_class.__name__} is invalid; couldn't be saved! {all_errors}"
         )
 
     def get_known_from_fields(self):

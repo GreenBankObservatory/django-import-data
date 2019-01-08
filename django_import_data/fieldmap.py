@@ -173,16 +173,16 @@ class FieldMap:
         if self.map_type in (self.ONE_TO_ONE, self.MANY_TO_ONE):
             to_field = self.to_fields[0]
             if self.map_type == self.MANY_TO_ONE:
-                converted = self.converter(**ret)
+                converted = converter(**ret)
                 if not isinstance(converted, dict):
                     return {to_field: converted}
                 return converted
 
             from_field_value = next(iter(ret.values()))
-            return {to_field: self.converter(from_field_value)}
+            return {to_field: converter(from_field_value)}
 
         # For all other cases, expect the converter to be smart enough
-        return self.converter(**ret)
+        return converter(**ret)
 
 
 class OneToOneFieldMap(FieldMap):
@@ -239,7 +239,7 @@ class OneToOneFieldMap(FieldMap):
         # converted values
         to_field = self.to_fields[0]
         from_field_value = next(iter(ret.values()))
-        converted = self.converter(from_field_value)
+        converted = converter(from_field_value)
         if not isinstance(converted, dict):
             return {to_field: converted}
         return converted
@@ -263,7 +263,7 @@ class ManyToOneFieldMap(FieldMap):
         # {to_field: converted values} dicts, and instead simply return
         # converted values
         to_field = self.to_fields[0]
-        converted = self.converter(**ret)
+        converted = converter(**ret)
         if not isinstance(converted, dict):
             return {to_field: converted}
         return converted

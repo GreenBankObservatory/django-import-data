@@ -1,16 +1,18 @@
 import csv
+
+# from pprint import pformat
+import json
 import random
 
-from django.core.management.base import BaseCommand, CommandError
+from django.core.management.base import BaseCommand
 from django.db import transaction
 
 from tqdm import tqdm
 
 
 class BaseImportCommand(BaseCommand):
-    def add_arguments(self, parser):
-        # TODO: Allow multiple paths for all importers
-        parser.add_argument("path")
+    @staticmethod
+    def add_core_arguments(parser):
         parser.add_argument(
             "-d",
             "--dry-run",
@@ -23,7 +25,18 @@ class BaseImportCommand(BaseCommand):
         parser.add_argument(
             "-D", "--durable", action="store_true", help="Continue past row errors"
         )
-        parser.add_argument("-l", "--limit", type=float)
+        parser.add_argument(
+            "-l",
+            "--limit",
+            type=float,
+            help="Specify a random percentage [0.0 - 1.0] of rows that should be processed",
+        )
+        return parser
+
+    def add_arguments(self, parser):
+        # TODO: Allow multiple paths for all importers
+        parser.add_argument("path")
+        self.add_core_arguments(parser)
 
     def load_rows(self, path):
         with open(path, newline="", encoding="latin1") as file:
@@ -53,23 +66,31 @@ class BaseImportCommand(BaseCommand):
         if limit is not None:
             rows = self.get_random_rows(rows, limit)
 
-        for row in tqdm(rows, unit="rows"):
+        for row in tqdm(rows, desc=self.help, unit="rows"):
             try:
                 audits = self.handle_row(row)
-            except Exception as error:
-                tqdm.write(f"Failed to handle row: {row}")
+            except ValueError as error:
+                tqdm.write(f"Failed to handle row (conversion errors): {row}")
                 if not durable:
                     raise error
-                tqdm.write(str(error))
-
-            errors = {field: audit.errors for field, audit in audits.items() if audit}
-            if errors and not durable:
-                raise ValueError(f"{len(errors)} errors in row: {errors}")
+                tqdm.write(f"  Error: {error!r}")
+            else:
+                # if not isinstance(audits, dict) is None:
+                #     raise ValueError("handle_row must return audit info as a dict!")
+                errors = {
+                    formmap_name: audit.errors
+                    for formmap_name, audit in audits.items()
+                    if audit
+                }
+                if errors:
+                    error_str = f"Row handled, but had {len(errors)} errors:\n{json.dumps(errors, indent=2)}"
+                    if durable:
+                        tqdm.write(error_str)
+                    else:
+                        raise ValueError(error_str)
 
     @transaction.atomic
     def handle(self, *args, **options):
-        print(args)
-        print(options)
         self.handle_rows(*args, **options)
         if options["dry_run"]:
             transaction.set_rollback = True

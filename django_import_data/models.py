@@ -101,6 +101,8 @@ class GenericAuditGroup(BaseAuditGroup):
     auditee = GenericForeignKey()
 
     class Meta:
+        # Can't enforce uniqueness on auditee, but this is effectively the
+        # same (and actually works)
         unique_together = (("content_type", "object_id"),)
 
     def __str__(self):
