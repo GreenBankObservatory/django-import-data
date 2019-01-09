@@ -95,9 +95,8 @@ class FormMap:
             errors,
         )
 
-    # TODO: handle common functionality
-    # TODO: Merge with save; use row_audit as differentiation
-    def save_with_audit(self, data, row_audit, **kwargs):
+    # TODO: Merge with save; use row_data as differentiation
+    def save_with_audit(self, data, row_data, **kwargs):
         # TODO: Well this is obviously stupid
         from django.contrib.contenttypes.models import ContentType
         from .models import GenericAuditGroup, GenericAudit
@@ -113,7 +112,9 @@ class FormMap:
             form, conversion_errors = self.render(data, **kwargs)
 
         if form.is_valid():
-            instance = form.save()
+            instance = form.save(commit=False)
+            instance.row_data = row_data
+            instance.save()
             return instance, None
 
         useful_form_errors = get_useful_form_errors(form)
@@ -123,11 +124,11 @@ class FormMap:
             "form_errors": useful_form_errors,
         }
         audit_group = GenericAuditGroup.objects.create(
-            row_audit=row_audit,
+            row_data=row_data,
             content_type=ContentType.objects.get_for_model(self.form_class.Meta.model),
             object_id=None,
         )
-        print(f"Created audit group {audit_group} for row_audit {row_audit}")
+        print(f"Created audit group {audit_group} for row_data {row_data}")
         audit = GenericAudit.objects.create(
             audit_group=audit_group, auditee_fields=form.data, errors=all_errors
         )

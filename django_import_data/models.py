@@ -54,9 +54,21 @@ class BaseAuditGroup(TrackedModel):
 
 class BaseAudit(TrackedModel):
     audit_group = NotImplemented
-    auditee_fields = JSONField(encoder=DjangoErrorJSONEncoder, null=True)
-    errors = JSONField(encoder=DjangoErrorJSONEncoder, null=True)
-    error_summary = JSONField(encoder=DjangoErrorJSONEncoder, null=True)
+    auditee_fields = JSONField(
+        encoder=DjangoErrorJSONEncoder,
+        null=True,
+        help_text="The original data used to create this Audit",
+    )
+    errors = JSONField(
+        encoder=DjangoErrorJSONEncoder,
+        null=True,
+        help_text="Stores any errors encountered during the creation of the auditee",
+    )
+    error_summary = JSONField(
+        encoder=DjangoErrorJSONEncoder,
+        null=True,
+        help_text="Stores any 'summary' information that might need to be associated",
+    )
     status = models.CharField(
         max_length=16,
         choices=(
@@ -66,6 +78,7 @@ class BaseAudit(TrackedModel):
             ("pending", "Pending"),
         ),
         default="pending",
+        help_text="The import status of the auditee",
     )
     imported_from = models.CharField(max_length=512)
 
@@ -95,17 +108,45 @@ class BaseAudit(TrackedModel):
         return f"Audit {self.created_on} {self.imported_from} ({self.status})"
 
 
-class RowAudit(models.Model):
-    data = JSONField()
-    # name = models.CharField(max_length=256)
+class RowData(models.Model):
+    data = JSONField(
+        help_text="Stores a 'row' (or similar construct) of data as it "
+        "was originally encountered"
+    )
+
+    # TODO: Surely there's a better, canonical way of doing this?
+    def get_audited_models(self):
+        """Return all AuditedModel instances associated with this model
+
+        That is, return all model instances that were created from this row data
+        """
+
+        # Get a list of field (attribute) names from associated AuditedModel
+        # instances
+        fields = [
+            field.name
+            for field in self._meta.get_fields()
+            if field.related_model and issubclass(field.related_model, AuditedModel)
+        ]
+        # Now get the queryset for each of these fields and join them all together
+        models = []
+        for field in fields:
+            models.extend(getattr(self, field).all())
+        return models
+
+    def __str__(self):
+        return f"Row data for models: {self.get_audited_models()}"
 
     def get_absolute_url(self):
         return reverse("rowaudit_detail", args=[str(self.id)])
 
 
 class GenericAuditGroup(BaseAuditGroup):
-    row_audit = models.ForeignKey(
-        RowAudit, related_name="audits", on_delete=models.CASCADE
+    row_data = models.ForeignKey(
+        RowData,
+        related_name="audits",
+        on_delete=models.CASCADE,
+        help_text="Reference to the original data used to create this audit group",
     )
     content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
     object_id = models.PositiveIntegerField(null=True)
@@ -115,6 +156,9 @@ class GenericAuditGroup(BaseAuditGroup):
         # Can't enforce uniqueness on auditee, but this is effectively the
         # same (and actually works)
         unique_together = (("content_type", "object_id"),)
+        # This should provide a big performance gain (I think), because
+        # we will very frequently be querying based on these (as opposed to ID)
+        indexes = (models.Index(fields=("content_type", "object_id")),)
 
     def __str__(self):
         if self.auditee:
@@ -128,7 +172,10 @@ class GenericAuditGroup(BaseAuditGroup):
 
 class GenericAudit(BaseAudit):
     audit_group = models.ForeignKey(
-        GenericAuditGroup, related_name="audits", on_delete=models.CASCADE
+        GenericAuditGroup,
+        related_name="audits",
+        on_delete=models.CASCADE,
+        help_text="Reference to the audit group that 'holds' this audit",
     )
 
     def get_absolute_url(self):
@@ -136,7 +183,18 @@ class GenericAudit(BaseAudit):
 
 
 class AuditedModel(models.Model):
-    audit_groups = GenericRelation(GenericAuditGroup)
+    # This can't be OneToOne because it's possible that more than one
+    # instance of a given model will be created from a given row
+    row_data = models.ForeignKey(
+        RowData,
+        related_name="%(class)s_models",
+        on_delete=models.CASCADE,
+        help_text="Reference to the original data used to create this model",
+    )
+    audit_groups = GenericRelation(
+        GenericAuditGroup,
+        help_text="Reference to the audit group that stores audit history regarding this model",
+    )
     # objects = GenericAuditManager()
 
     class Meta:
