@@ -1,0 +1,12 @@
+{% extends "cases/base.html" %}
+{% load django_import_data_tags %}
+
+{% block content %}
+
+<h1>{{ rowdata }}</h1>
+
+{{ rowdata.data | json | safe }}
+
+{% include "list_base.html" with object_list=rowdata.audit_groups.all %}
+
+{% endblock %}
