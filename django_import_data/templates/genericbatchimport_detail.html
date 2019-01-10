@@ -1,0 +1,20 @@
+{% extends "cases/base.html" %}
+{% load django_import_data_tags %}
+
+{% block content %}
+
+<h1>GBI {{ genericbatchimport }}</h1>
+
+<h2>File-Level Import Errors</h2>
+{% if genericbatchimport.errors %}
+{{ genericbatchimport.errors | json | safe }}
+{% else %}
+<p>None</p>
+{% endif %}
+
+<h2>Audit Groups</h2>
+{{ genericbatchimport.audits.all }}
+{% include "list_base.html" with object_list=genericbatchimport.audit_groups.all %}
+
+
+{% endblock %}

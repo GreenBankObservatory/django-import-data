@@ -163,7 +163,7 @@ class FieldMap:
             converter = self.converter
         ret = self.unalias(data, allow_unknown=allow_unknown)
         if not ret:
-            # print(f"WARNING: Failed to produce value for {data}")
+            print(f"WARNING: Failed to produce value for {data}")
             return {}
 
         # Handle the simple 1:1/n:1 cases here to save on boilerplate externally
@@ -173,16 +173,25 @@ class FieldMap:
         if self.map_type in (self.ONE_TO_ONE, self.MANY_TO_ONE):
             to_field = self.to_fields[0]
             if self.map_type == self.MANY_TO_ONE:
-                converted = converter(**ret)
+                try:
+                    converted = converter(**ret)
+                except TypeError as error:
+                    raise ValueError("Unmapped headers!") from error
                 if not isinstance(converted, dict):
                     return {to_field: converted}
                 return converted
 
             from_field_value = next(iter(ret.values()))
-            return {to_field: converter(from_field_value)}
+            try:
+                return {to_field: converter(from_field_value)}
+            except TypeError as error:
+                raise ValueError("Unmapped headers!") from error
 
         # For all other cases, expect the converter to be smart enough
-        return converter(**ret)
+        try:
+            return converter(**ret)
+        except TypeError as error:
+            raise ValueError("Unmapped headers!") from error
 
 
 class OneToOneFieldMap(FieldMap):
@@ -200,16 +209,16 @@ class OneToOneFieldMap(FieldMap):
             from_fields = from_field
             # But we need to pull out its key (the field designation) to
             # populate our to_field
-            to_field = next(iter(from_field))
+            if to_field is None:
+                to_field = next(iter(from_field))
         else:
             # If it isn't a dict, assume that it is some sort of sensible
             # atomic value and put it in a list
             from_fields = [from_field]
-
-        # If to_field still hasn't been set, just set it
-        # directly from from_field
-        if to_field is None:
-            to_field = from_field
+            # If to_field still wasn't set, just set it
+            # directly from from_field
+            if to_field is None:
+                to_field = from_field
 
         # TODO: Shouldn't this conflict with the convert_foo logic in formmap init?
         if converter is None:
@@ -239,7 +248,10 @@ class OneToOneFieldMap(FieldMap):
         # converted values
         to_field = self.to_fields[0]
         from_field_value = next(iter(ret.values()))
-        converted = converter(from_field_value)
+        try:
+            converted = converter(from_field_value)
+        except TypeError as error:
+            raise ValueError("Unmapped headers!") from error
         if not isinstance(converted, dict):
             return {to_field: converted}
         return converted
@@ -263,7 +275,10 @@ class ManyToOneFieldMap(FieldMap):
         # {to_field: converted values} dicts, and instead simply return
         # converted values
         to_field = self.to_fields[0]
-        converted = converter(**ret)
+        try:
+            converted = converter(**ret)
+        except TypeError as error:
+            raise ValueError("Unmapped headers!") from error
         if not isinstance(converted, dict):
             return {to_field: converted}
         return converted

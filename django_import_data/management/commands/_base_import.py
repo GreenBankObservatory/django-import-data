@@ -11,8 +11,11 @@ from tqdm import tqdm
 
 
 class BaseImportCommand(BaseCommand):
+    output_transaction = True
+
     @staticmethod
     def add_core_arguments(parser):
+        """Add the set of args that are common across all import commands"""
         parser.add_argument(
             "-d",
             "--dry-run",
@@ -39,6 +42,7 @@ class BaseImportCommand(BaseCommand):
         self.add_core_arguments(parser)
 
     def load_rows(self, path):
+        """Load rows from a CSV file"""
         with open(path, newline="", encoding="latin1") as file:
             lines = file.readlines()
 
@@ -83,7 +87,10 @@ class BaseImportCommand(BaseCommand):
                     if audit
                 }
                 if errors:
-                    error_str = f"Row handled, but had {len(errors)} errors:\n{json.dumps(errors, indent=2)}"
+                    error_str = (
+                        f"Row handled, but had {len(errors)} errors:\n"
+                        f"{json.dumps(errors, indent=2)}"
+                    )
                     if durable:
                         tqdm.write(error_str)
                     else:

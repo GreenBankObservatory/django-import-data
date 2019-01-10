@@ -1,37 +1,34 @@
-import json
-
+from django.http import HttpResponseRedirect
 from django.contrib import messages
-from django.contrib.contenttypes.models import ContentType
 from django.views.generic.list import ListView
 from django.views.generic.detail import DetailView
 from django.views.generic import CreateView
 from django.shortcuts import get_object_or_404, redirect
-from django.forms import ValidationError
 
-from .models import GenericAuditGroup, GenericAudit, RowData
+from .models import (
+    GenericAuditGroup,
+    GenericAudit,
+    RowData,
+    GenericAuditGroupBatch,
+    GenericBatchImport,
+)
 
 
 class CreateFromAuditView(CreateView):
     def get_initial(self):
-        audit = get_object_or_404(GenericAudit, id=self.kwargs["audit_pk"])
-        self.audit = audit
-
-        print("AUDIT", audit.auditee_fields)
-        return audit.auditee_fields
-
-    # def get_form(self, form_class=None):
-    #     if form_class is None:
-    #         form_class = self.get_form_class()
-    #     return form_class(self.get_initial())
+        self.audit = get_object_or_404(GenericAudit, id=self.kwargs["audit_pk"])
+        return self.audit.auditee_fields
 
     def form_valid(self, form):
         if self.audit.audit_group.auditee:
             messages.error(self.request, f"Error! Already exists yo")
-            to = self.request.META.get("HTTP_REFERER", "genericauditgroup_list")
-            print("FSDJFDSLKJ", to)
             return redirect("genericauditgroup_detail", pk=self.audit.audit_group.id)
-        response = super().form_valid(form)
+
+        self.object = form.save(commit=False)
+        self.object.row_data = self.audit.audit_group.row_data
         self.object.audit_groups.set([self.audit.audit_group])
+        form.save()
+
         try:
             audit = GenericAudit.objects.create(
                 audit_group=self.audit.audit_group,
@@ -42,7 +39,9 @@ class CreateFromAuditView(CreateView):
             messages.error(self.request, f"Error! {error}")
         else:
             messages.success(self.request, f"Created audit: {audit}")
-        return response
+
+        # From FormMixin
+        return HttpResponseRedirect(self.get_success_url())
 
 
 class GenericAuditGroupDetailView(DetailView):
@@ -67,9 +66,29 @@ class GenericAuditListView(ListView):
 
 class RowDataDetailView(DetailView):
     model = RowData
-    template_name = "rowaudit_detail.html"
+    template_name = "rowdata_detail.html"
 
 
 class RowDataListView(ListView):
     model = RowData
-    template_name = "rowaudit_list.html"
+    template_name = "rowdata_list.html"
+
+
+class GenericAuditGroupBatchListView(ListView):
+    model = GenericAuditGroupBatch
+    template_name = "cases/generic_list.html"
+
+
+class GenericAuditGroupBatchDetailView(DetailView):
+    model = GenericAuditGroupBatch
+    template_name = "genericauditgroupbatch_detail.html"
+
+
+class GenericBatchImportListView(ListView):
+    model = GenericBatchImport
+    template_name = "cases/generic_list.html"
+
+
+class GenericBatchImportDetailView(DetailView):
+    model = GenericBatchImport
+    template_name = "genericbatchimport_detail.html"

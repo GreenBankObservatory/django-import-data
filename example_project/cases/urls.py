@@ -10,6 +10,10 @@ from django_import_data.views import (
     GenericAuditGroupListView,
     GenericAuditListView,
     GenericAuditDetailView,
+    GenericAuditGroupBatchListView,
+    GenericAuditGroupBatchDetailView,
+    GenericBatchImportListView,
+    GenericBatchImportDetailView,
 )
 
 urlpatterns = [
@@ -56,8 +60,23 @@ urlpatterns = [
         name="structure_create_from_audit",
     ),
     path(
-        "<str:model>/create-from-audit/<int:audit_pk>",
-        views.CreateFromAuditRedirectView.as_view(),
-        name="create_from_audit",
+        "batches/",
+        GenericAuditGroupBatchListView.as_view(),
+        name="genericauditgroupbatch_list",
+    ),
+    path(
+        "batches/<int:pk>/",
+        GenericAuditGroupBatchDetailView.as_view(),
+        name="genericauditgroupbatch_detail",
+    ),
+    path(
+        "batch-imports/",
+        GenericBatchImportListView.as_view(),
+        name="genericbatchimport_list",
+    ),
+    path(
+        "batch-imports/<int:pk>/",
+        GenericBatchImportDetailView.as_view(),
+        name="genericbatchimport_detail",
     ),
 ]

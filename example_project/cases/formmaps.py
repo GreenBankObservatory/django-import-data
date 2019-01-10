@@ -53,7 +53,7 @@ class PersonFormMap(FormMap):
         ),
         # 1:1
         OneToOneFieldMap(from_field="email", to_field="email"),
-        OneToOneFieldMap("phone"),
+        OneToOneFieldMap({"phone": ("phone", "phone_number")}),
     ]
 
 
@@ -63,15 +63,13 @@ class CaseFormMap(FormMap):
         type_, subtype = type.split(" ")
         return {"status": status, "type": type_, "subtype": subtype}
 
-    def convert_name(self, hmmm):
-        pass
+    def convert_case_num(self, case_num):
+        return coerce_positive_int(case_num.strip("CASE#"))
 
     form_class = CaseForm
     field_maps = [
         # 1:1
-        OneToOneFieldMap(
-            to_field="case_num", converter=coerce_positive_int, from_field="case_num"
-        ),
+        OneToOneFieldMap("case_num", converter="convert_case_num"),
         # n:n
         ManyToManyFieldMap(
             from_fields=("completed", "type"),
@@ -92,4 +90,4 @@ class StructureFormMap(FormMap):
     )
 
     def convert_location(self, latitude, longitude):
-        return {"location": (latitude, longitude)}
+        return {"location": f"({latitude}, {longitude})"}

@@ -5,8 +5,6 @@
 
 <h1>{{ object | model_name }} Detail</h1>
 
-{{ object }}
-
-{% include "genericaudit_list_bare.html" with genericaudit_list=object.audit_group.audits.all %}
+{% include "list_base.html" with object_list=object.imports.all %}
 
 {% endblock %}

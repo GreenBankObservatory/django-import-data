@@ -21,6 +21,9 @@ class Case(AuditedModel):
     applicant = models.ForeignKey(
         "Person", on_delete=models.CASCADE, null=True, blank=True
     )
+    structure = models.ForeignKey(
+        "Structure", on_delete=models.CASCADE, null=True, blank=True
+    )
 
     def __str__(self):
         return f"#{self.case_num} ({self.applicant})"
