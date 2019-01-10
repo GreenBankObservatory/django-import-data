@@ -27,7 +27,10 @@ def json(value):
 @register.filter
 def qs_name(qs):
     try:
-        return qs.model.__name__
+        try:
+            return qs.model._meta.verbose_name
+        except AttributeError:
+            return qs.model.__name__
     except AttributeError:
         return None
 
@@ -35,6 +38,9 @@ def qs_name(qs):
 @register.filter
 def model_name(model):
     try:
-        return model._meta.model.__name__
+        try:
+            return model._meta.verbose_name
+        except AttributeError:
+            return model.__name__
     except AttributeError:
         return None

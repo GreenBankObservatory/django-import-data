@@ -1,15 +1,13 @@
-import json
 import os
 
-from django.urls import reverse
+from django.contrib.contenttypes.fields import GenericRelation, GenericForeignKey
+from django.contrib.contenttypes.models import ContentType
+from django.contrib.gis.geos import GEOSGeometry
 from django.contrib.postgres.fields import JSONField
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import models
-
-from django.contrib.contenttypes.models import ContentType
-from django.contrib.contenttypes.fields import GenericRelation, GenericForeignKey
+from django.urls import reverse
 from django.utils.functional import cached_property
-from django.contrib.gis.geos import GEOSGeometry
 
 from .mixins import ImportStatusModel, TrackedModel
 
@@ -22,6 +20,7 @@ class DjangoErrorJSONEncoder(DjangoJSONEncoder):
         return super().default(obj)
 
 
+# Change to: BaseImporterBatch
 class BaseAuditGroupBatch(TrackedModel, ImportStatusModel):
     """Represents a "batch" of Audit Groups imported from the same file"""
 
@@ -31,17 +30,26 @@ class BaseAuditGroupBatch(TrackedModel, ImportStatusModel):
 
     class Meta:
         abstract = True
-        ordering = ["-created_on"]
 
     def __str__(self):
-        return f"Batch {os.path.basename(self.last_imported_path)}"
+        return f"Batch {self.name}"
 
     @property
     def most_recent_import(self):
         return self.imports.order_by("created_on").last()
 
+    @cached_property
+    def name(self):
+        return os.path.basename(self.last_imported_path)
 
+
+# Change to: BatchImporterBatch
 class GenericAuditGroupBatch(BaseAuditGroupBatch):
+    class Meta:
+        ordering = ["-created_on"]
+        verbose_name = "Generic Audit Group Batch"
+        verbose_name_plural = "Generic Audit Group Batches"
+
     def get_absolute_url(self):
         return reverse("genericauditgroupbatch_detail", args=[str(self.id)])
 
@@ -68,12 +76,9 @@ class BaseBatchImport(TrackedModel, ImportStatusModel):
 
     class Meta:
         abstract = True
-        verbose_name = "Batch Import"
-        verbose_name_plural = "Batch Imports"
-        ordering = ["-created_on"]
 
     def __str__(self):
-        return f"Batch Import {os.path.basename(self.imported_from)}"
+        return f"Batch Import {self.name}"
 
     def save(self, *args, **kwargs):
         self.batch.status = self.status
@@ -81,8 +86,17 @@ class BaseBatchImport(TrackedModel, ImportStatusModel):
         self.batch.save()
         super().save(*args, **kwargs)
 
+    @cached_property
+    def name(self):
+        return os.path.basename(self.imported_from)
+
 
 class GenericBatchImport(BaseBatchImport):
+    class Meta:
+        ordering = ["-created_on"]
+        verbose_name = "Generic Batch Import"
+        verbose_name_plural = "Generic Batch Imports"
+
     def get_absolute_url(self):
         return reverse("genericbatchimport_detail", args=[str(self.id)])
 
@@ -98,6 +112,7 @@ class GenericBatchImport(BaseBatchImport):
         return self.genericauditgroup_audit_groups
 
 
+# Change to: BaseImporter
 class BaseAuditGroup(TrackedModel, ImportStatusModel):
     """Groups a set of Audits together"""
 
@@ -124,6 +139,7 @@ class BaseAuditGroup(TrackedModel, ImportStatusModel):
 #         return auditee
 
 
+# Change to: BaseImportAttempt
 class BaseAudit(TrackedModel, ImportStatusModel):
     audit_group = NotImplemented
     auditee_fields = JSONField(
@@ -202,6 +218,10 @@ class RowData(models.Model):
         print("thing", thing)
         return thing
 
+    class Meta:
+        verbose_name = "Row Data"
+        verbose_name_plural = "Row Data"
+
     # def __str__(self):
     #     return f"Row data for models: {self.get_audited_models()}"
 
@@ -209,6 +229,7 @@ class RowData(models.Model):
         return reverse("rowdata_detail", args=[str(self.id)])
 
 
+# Change to: Importer
 class GenericAuditGroup(BaseAuditGroup):
     batch_import = models.ForeignKey(
         GenericBatchImport,
@@ -229,6 +250,8 @@ class GenericAuditGroup(BaseAuditGroup):
     auditee = GenericForeignKey()
 
     class Meta:
+        verbose_name = "Generic Audit Group"
+        verbose_name_plural = "Generic Audit Groups"
         # Can't enforce uniqueness on auditee, but this is effectively the
         # same (and actually works)
         unique_together = (("content_type", "object_id"),)
@@ -237,6 +260,9 @@ class GenericAuditGroup(BaseAuditGroup):
         indexes = (models.Index(fields=("content_type", "object_id")),)
 
     def __str__(self):
+        if self.id is None:
+            return f"Audit Group ({self.status})"
+
         if self.auditee:
             return f"Audit Group for {self.content_type} {self.auditee} ({self.status})"
 
@@ -256,6 +282,7 @@ class GenericAuditGroup(BaseAuditGroup):
         return audit.get_create_from_audit_url()
 
 
+# Change to: BaseImportAttempt
 class GenericAudit(BaseAudit):
     audit_group = models.ForeignKey(
         GenericAuditGroup,
@@ -263,6 +290,10 @@ class GenericAudit(BaseAudit):
         on_delete=models.CASCADE,
         help_text="Reference to the audit group that 'holds' this audit",
     )
+
+    class Meta:
+        verbose_name = "Generic Audit"
+        verbose_name_plural = "Generic Audits"
 
     def get_absolute_url(self):
         return reverse("genericaudit_detail", args=[str(self.id)])

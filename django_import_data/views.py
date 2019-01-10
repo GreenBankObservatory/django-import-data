@@ -1,16 +1,16 @@
-from django.http import HttpResponseRedirect
 from django.contrib import messages
-from django.views.generic.list import ListView
-from django.views.generic.detail import DetailView
-from django.views.generic import CreateView
+from django.http import HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect
+from django.views.generic import CreateView
+from django.views.generic.detail import DetailView
+from django.views.generic.list import ListView
 
 from .models import (
-    GenericAuditGroup,
     GenericAudit,
-    RowData,
+    GenericAuditGroup,
     GenericAuditGroupBatch,
     GenericBatchImport,
+    RowData,
 )
 
 

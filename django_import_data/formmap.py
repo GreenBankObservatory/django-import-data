@@ -117,10 +117,11 @@ class FormMap:
                 batch_import=batch_import,
                 form_map=self.__class__.__name__,
                 row_data=row_data,
-                # content_type=ContentType.objects.get_for_model(self.form_class.Meta.model),
-                # object_id=None,
+                # content_type=ContentType.objects.get_for_model(instance),
+                # object_id=instance.id,
                 auditee=instance,
             )
+            print("AG", audit_group.content_type)
             audit = GenericAudit.objects.create(
                 audit_group=audit_group, auditee_fields=form.data
             )
