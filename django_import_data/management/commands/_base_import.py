@@ -4,10 +4,12 @@ import csv
 import json
 import random
 
+from tqdm import tqdm
+
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from tqdm import tqdm
+from django.apps import apps
 
 
 class BaseImportCommand(BaseCommand):
@@ -65,6 +67,20 @@ class BaseImportCommand(BaseCommand):
         return [rows[index] for index in random_indices]
 
     def handle_rows(self, path, durable=False, **options):
+        GenericAuditGroupBatch = apps.get_model(
+            "django_import_data.GenericAuditGroupBatch"
+        )
+        GenericBatchImport = apps.get_model("django_import_data.GenericBatchImport")
+        # TODO: How to handle changes in path? That is, if a Batch file is moved
+        # somewhere else we still need a way to force its association with the
+        # existing Batch in the DB. Allow explicit Batch ID to be passed in?
+        # Some other unique ID?
+        batch, batch_created = GenericAuditGroupBatch.objects.get_or_create(
+            last_imported_path=path
+        )
+        batch_import = GenericBatchImport.objects.create(
+            batch=batch, imported_from=path
+        )
         rows = list(self.load_rows(path))
         limit = options.get("limit", None)
         if limit is not None:
@@ -72,7 +88,7 @@ class BaseImportCommand(BaseCommand):
 
         for row in tqdm(rows, desc=self.help, unit="rows"):
             try:
-                audits = self.handle_row(row)
+                audits = self.handle_row(row, batch_import)
             except ValueError as error:
                 tqdm.write(f"Failed to handle row (conversion errors): {row}")
                 if not durable:

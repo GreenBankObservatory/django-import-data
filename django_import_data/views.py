@@ -20,7 +20,7 @@ class CreateFromAuditView(CreateView):
         return self.audit.auditee_fields
 
     def form_valid(self, form):
-        if self.audit.audit_group.auditee:
+        if self.audit.audit_group.models.exists():
             messages.error(self.request, f"Error! Already exists yo")
             return redirect("genericauditgroup_detail", pk=self.audit.audit_group.id)
 

@@ -1,14 +1,15 @@
-from enum import Enum
-
 from django.db import models
+
+from .utils import OrderedEnum
 
 
 class ImportStatusModel(models.Model):
-    class STATUSES(Enum):
-        rejected = "Rejected: Fatal Errors"
-        created_dirty = "Imported: Some Errors"
-        created_clean = "Imported: No Errors"
+    class STATUSES(OrderedEnum):
+        # NOTE: Order here matters; it is used to determine precedence
         pending = "Pending"
+        created_clean = "Imported: No Errors"
+        created_dirty = "Imported: Some Errors"
+        rejected = "Rejected: Fatal Errors"
 
         @classmethod
         def get_default(cls):

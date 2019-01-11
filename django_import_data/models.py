@@ -81,6 +81,7 @@ class BaseBatchImport(TrackedModel, ImportStatusModel):
         return f"Batch Import {self.name}"
 
     def save(self, *args, **kwargs):
+        # print("GBI save")
         self.batch.status = self.status
         self.batch.last_imported_path = self.imported_from
         self.batch.save()
@@ -100,12 +101,6 @@ class GenericBatchImport(BaseBatchImport):
     def get_absolute_url(self):
         return reverse("genericbatchimport_detail", args=[str(self.id)])
 
-    def summary(self):
-        return {
-            ag.content_type.model: ag.status
-            for ag in self.genericauditgroup_audit_groups.all()
-        }
-
     # TODO: Remove this!
     @property
     def audit_groups(self):
@@ -116,7 +111,17 @@ class GenericBatchImport(BaseBatchImport):
 class BaseAuditGroup(TrackedModel, ImportStatusModel):
     """Groups a set of Audits together"""
 
+    row_data = models.ForeignKey(
+        "django_import_data.RowData",
+        related_name="%(class)s_audit_groups",
+        on_delete=models.CASCADE,
+        help_text="Reference to the original data used to create this audit group",
+    )
     form_map = models.CharField(max_length=64)
+    importee_class = models.CharField(max_length=64)
+
+    class Meta:
+        abstract = True
 
     @cached_property
     def name(self):
@@ -124,24 +129,10 @@ class BaseAuditGroup(TrackedModel, ImportStatusModel):
             return self.form_map
         return self.form_map[: len(self.form_map) - len("FormMap")].lower()
 
-    class Meta:
-        abstract = True
-
-
-# class GenericAuditManager(models.Manager):
-#     def create_with_audit(self, *args, **kwargs):
-#         auditee = self.create(*args, **kwargs)
-#         GenericAuditGroup.objects.get_or_create(
-#             content_type=ContentType.objects.get_for_model(auditee),
-#             object_id=auditee.id,
-#         )
-
-#         return auditee
-
 
 # Change to: BaseImportAttempt
 class BaseAudit(TrackedModel, ImportStatusModel):
-    audit_group = NotImplemented
+    importer = NotImplemented
     auditee_fields = JSONField(
         encoder=DjangoErrorJSONEncoder,
         null=True,
@@ -164,20 +155,16 @@ class BaseAudit(TrackedModel, ImportStatusModel):
         ordering = ["-created_on"]
 
     def save(self, *args, **kwargs):
-        # if self.audit_group and self.audit_group.auditee:
-        #     auditee = self.audit_group.auditee
-        #     raise ValueError(
-        #         f"There already exists a {auditee._meta.model.__name__} "
-        #         f"for this audit group: {auditee}"
-        #     )
-        # TODO: This is a little weird, but alright...
+        # print("GA save")
         if self.errors:
             self.status = "rejected"
         else:
             self.status = "created_clean"
-        self.audit_group.status = self.status
-        # self.audit_group.last_imported_path = self.imported_from
-        self.audit_group.save()
+
+        # The status of an importer should always be that status of its
+        # most recent import attempt
+        self.importer.status = self.status
+        self.importer.save()
 
         super().save(*args, **kwargs)
 
@@ -215,7 +202,7 @@ class RowData(models.Model):
         if hasattr(self, "audit_groups"):
             audit_groups.extend(self.genericauditgroup_audit_groups.all())
         thing = [ag.auditee for ag in audit_groups if ag.auditee]
-        print("thing", thing)
+        # print("thing", thing)
         return thing
 
     class Meta:
@@ -239,40 +226,26 @@ class GenericAuditGroup(BaseAuditGroup):
         blank=True,
         help_text="Reference to the batch import this was created from",
     )
-    row_data = models.ForeignKey(
-        "django_import_data.RowData",
-        related_name="%(class)s_audit_groups",
-        on_delete=models.CASCADE,
-        help_text="Reference to the original data used to create this audit group",
-    )
-    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
-    object_id = models.PositiveIntegerField(null=True)
-    auditee = GenericForeignKey()
 
     class Meta:
         verbose_name = "Generic Audit Group"
         verbose_name_plural = "Generic Audit Groups"
-        # Can't enforce uniqueness on auditee, but this is effectively the
-        # same (and actually works)
-        unique_together = (("content_type", "object_id"),)
-        # This should provide a big performance gain (I think), because
-        # we will very frequently be querying based on these (as opposed to ID)
-        indexes = (models.Index(fields=("content_type", "object_id")),)
 
     def __str__(self):
-        if self.id is None:
-            return f"Audit Group ({self.status})"
+        if self.importee:
+            importee_str = self.importee
+        else:
+            importee_str = self.importee_class
 
-        if self.auditee:
-            return f"Audit Group for {self.content_type} {self.auditee} ({self.status})"
-
-        return f"Audit Group for {self.content_type} ({self.status})"
+        return f"Audit Group for {importee_str} ({self.status})"
 
     def save(self, *args, **kwargs):
+        # print("GAG save")
         super().save(*args, **kwargs)
         if self.batch_import:
-            self.batch_import.status = self.status
-            self.batch_import.save()
+            if self.STATUSES[self.batch_import.status] < self.STATUSES[self.status]:
+                self.batch_import.status = self.status
+                self.batch_import.save()
 
     def get_absolute_url(self):
         return reverse("genericauditgroup_detail", args=[str(self.id)])
@@ -280,6 +253,39 @@ class GenericAuditGroup(BaseAuditGroup):
     def get_create_from_audit_url(self):
         audit = self.audits.last()
         return audit.get_create_from_audit_url()
+
+    def attempt(self, **kwargs):
+        kwargs["audit_group"] = kwargs.pop("importer")
+        return GenericAudit.objects.create(**kwargs)
+
+    def get_populated_related_objects(self):
+        return [
+            ro
+            for ro in self._meta.related_objects
+            if issubclass(ro.related_model, AuditedModel) and hasattr(self, ro.name)
+        ]
+
+    # @cached_property
+    # def importee_name(self):
+    #     if not self.importee:
+    #         return self.importee_class.__name__
+    #     return self.importee._meta.verbose_name
+
+    # @cached_property
+    # def importee_class(self):
+    #     ros = self.get_populated_related_objects()
+    #     if not ros:
+    #         return None
+    #     assert len(ros) == 1, "There shouldn't be multiple populated related querysets"
+    #     return ros[0].related_model
+
+    @cached_property
+    def importee(self):
+        ros = [getattr(self, ro.name) for ro in self.get_populated_related_objects()]
+        if not ros:
+            return None
+        assert len(ros) == 1, "There shouldn't be multiple populated related querysets"
+        return ros[0]
 
 
 # Change to: BaseImportAttempt
@@ -300,9 +306,13 @@ class GenericAudit(BaseAudit):
 
     def get_create_from_audit_url(self):
         return reverse(
-            f"{self.audit_group.content_type.model}_create_from_audit",
+            f"{self.audit_group.importee_class}_create_from_audit".lower(),
             args=[str(self.id)],
         )
+
+    @property
+    def importer(self):
+        return self.audit_group
 
 
 class AuditedModel(models.Model):
@@ -314,13 +324,15 @@ class AuditedModel(models.Model):
     #     on_delete=models.CASCADE,
     #     help_text="Reference to the original data used to create this model",
     # )
-    audit_groups = GenericRelation(
-        GenericAuditGroup,
-        help_text="Reference to the audit group that stores audit history regarding this model",
-        # TODO: Still not sure how to use this
-        related_query_name="models",
-    )
+    # audit_groups = GenericRelation(
+    #     GenericAuditGroup,
+    #     help_text="Reference to the audit group that stores audit history regarding this model",
+    #     # TODO: Still not sure how to use this
+    #     related_query_name="models",
+    # )
     # objects = GenericAuditManager()
+
+    audit_group = models.OneToOneField(GenericAuditGroup, on_delete=models.CASCADE)
 
     class Meta:
         abstract = True
@@ -328,6 +340,6 @@ class AuditedModel(models.Model):
     # audit_groups is actually a 1:1 relationship, so we
     # can safely make audit_group available like this
     # for the sake of convenience
-    @cached_property
-    def audit_group(self):
-        return self.audit_groups.first()
+    # @cached_property
+    # def audit_group(self):
+    #     return self.audit_groups.first()

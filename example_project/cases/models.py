@@ -2,6 +2,12 @@ from django.db import models
 from django.urls import reverse
 
 from django_import_data.models import AuditedModel
+from django_import_data.models import (
+    BaseAudit,
+    BaseAuditGroup,
+    BaseBatchImport,
+    BaseAuditGroupBatch,
+)
 
 
 class Person(AuditedModel):
@@ -40,3 +46,25 @@ class Structure(AuditedModel):
 
     def get_absolute_url(self):
         return reverse("structure_detail", args=[str(self.id)])
+
+
+class CaseImporter(BaseAuditGroup):
+    importee = models.OneToOneField(
+        Case,
+        related_name="importer",
+        on_delete=models.CASCADE,
+        # help_text="Reference to the audit group that 'holds' this audit",
+    )
+
+    @property
+    def case(self):
+        return self.importee
+
+
+class CaseImportAttempt(BaseAudit):
+    importer = models.OneToOneField(
+        CaseImporter,
+        related_name="attempts",
+        on_delete=models.CASCADE,
+        help_text="Reference to the audit group that 'holds' this audit",
+    )

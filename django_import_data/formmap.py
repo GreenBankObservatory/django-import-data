@@ -1,5 +1,6 @@
 import json
 
+
 from django.forms import ModelForm, ValidationError
 
 
@@ -19,6 +20,7 @@ class FormMap:
 
     field_maps = [NotImplemented]
     form_class = NotImplemented
+    importer_class = NotImplemented
     form_defaults = {}
 
     def __init__(self, form_kwargs=None, check_every_render_for_errors=False):
@@ -95,36 +97,43 @@ class FormMap:
             errors,
         )
 
-    # TODO: Merge with save; use row_data as differentiation
-    def save_with_audit(self, data, row_data, batch_import=None, **kwargs):
-        # TODO: Well this is obviously stupid
+    def save_with_audit(self, row_data, form=None, batch_import=None, **kwargs):
         from django.contrib.contenttypes.models import ContentType
-        from .models import GenericAuditGroup, GenericAudit
+        from .models import GenericAuditGroup
 
-        if isinstance(data, ModelForm):
-            # Assume that if data is a ModelForm instance, it is an already-rendered
-            # Form.
-            form = data
+        from .models import RowData
+
+        if not isinstance(row_data, RowData):
+            raise ValueError("aw snap")
+
+        if form is not None:
             conversion_errors = {}
         else:
             # Thus, if it is _not_ a ModelForm instance, we need to render it
             # ourselves
-            form, conversion_errors = self.render(data, **kwargs)
+            form, conversion_errors = self.render(row_data.data, **kwargs)
 
         if form.is_valid():
-            instance = form.save()
-            audit_group = GenericAuditGroup.objects.create(
-                batch_import=batch_import,
-                form_map=self.__class__.__name__,
-                row_data=row_data,
-                # content_type=ContentType.objects.get_for_model(instance),
-                # object_id=instance.id,
-                auditee=instance,
+            # TODO: .create_with_attempt
+            if self.importer_class is NotImplemented:
+                importer = GenericAuditGroup.objects.create(
+                    batch_import=batch_import,
+                    form_map=self.__class__.__name__,
+                    row_data=row_data,
+                    importee_class=form.Meta.model.__name__,
+                )
+            else:
+                kwargs = dict(form_map=self.__class__.__name__, row_data=row_data)
+                if batch_import:
+                    kwargs["batch_import"] = batch_import
+                importer = self.importer_class.objects.create(**kwargs)
+
+            import_attempt = importer.attempt(
+                importer=importer, auditee_fields=form.data
             )
-            print("AG", audit_group.content_type)
-            audit = GenericAudit.objects.create(
-                audit_group=audit_group, auditee_fields=form.data
-            )
+            instance = form.save(commit=False)
+            instance.audit_group = importer
+            instance.save()
             return instance, None
 
         useful_form_errors = get_useful_form_errors(form)
@@ -133,19 +142,24 @@ class FormMap:
             "conversion_errors": conversion_errors,
             "form_errors": useful_form_errors,
         }
-        audit_group = GenericAuditGroup.objects.create(
-            batch_import=batch_import,
-            form_map=self.__class__.__name__,
-            row_data=row_data,
-            content_type=ContentType.objects.get_for_model(self.form_class.Meta.model),
-            object_id=None,
-        )
+        if self.importer_class is NotImplemented:
+            importer = GenericAuditGroup.objects.create(
+                batch_import=batch_import,
+                form_map=self.__class__.__name__,
+                row_data=row_data,
+                importee_class=form.Meta.model.__name__,
+            )
+        else:
+            kwargs = dict(form_map=self.__class__.__name__, row_data=row_data)
+            if batch_import:
+                kwargs["batch_import"] = batch_import
 
-        # print(f"Created audit group {audit_group} for row_data {row_data}")
-        audit = GenericAudit.objects.create(
-            audit_group=audit_group, auditee_fields=form.data, errors=all_errors
+            importer = self.importer_class.objects.create(**kwargs)
+
+        import_attempt = importer.attempt(
+            importer=importer, auditee_fields=form.data, errors=all_errors
         )
-        return None, audit
+        return None, import_attempt
 
     # TODO: handle common functionality
     def save(self, data, **kwargs):
