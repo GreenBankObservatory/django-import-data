@@ -6,33 +6,38 @@ from django.views.generic.detail import DetailView
 from django.views.generic.list import ListView
 
 from .models import (
-    GenericAudit,
-    GenericAuditGroup,
-    GenericAuditGroupBatch,
-    GenericBatchImport,
+    ModelImportAttempt,
+    # ModelImporter,
+    FileImporter,
+    FileImportAttempt,
     RowData,
 )
 
 
-class CreateFromAuditView(CreateView):
+class CreateFromImportAttemptView(CreateView):
     def get_initial(self):
-        self.audit = get_object_or_404(GenericAudit, id=self.kwargs["audit_pk"])
-        return self.audit.auditee_fields
+        self.model_import_attempt = get_object_or_404(
+            ModelImportAttempt, id=self.kwargs["attempt_pk"]
+        )
+        return self.model_import_attempt.importee_field_data
 
     def form_valid(self, form):
-        if self.audit.audit_group.models.exists():
+        if self.model_import_attempt.model_importer.models.exists():
             messages.error(self.request, f"Error! Already exists yo")
-            return redirect("genericauditgroup_detail", pk=self.audit.audit_group.id)
+            return redirect(
+                "modelimporter_detail", pk=self.model_import_attempt.model_importer.id
+            )
 
+        # TODO: WTF is this
         self.object = form.save(commit=False)
-        self.object.row_data = self.audit.audit_group.row_data
-        self.object.audit_groups.set([self.audit.audit_group])
+        self.object.row_data = self.model_import_attempt.model_importer.row_data
+        self.object.model_importers.set([self.model_import_attempt.model_importer])
         form.save()
 
         try:
-            audit = GenericAudit.objects.create(
-                audit_group=self.audit.audit_group,
-                auditee_fields=form.cleaned_data,
+            audit = ModelImportAttempt.objects.create(
+                model_importer=self.model_import_attempt.model_importer,
+                importee_field_data=form.cleaned_data,
                 errors={},
             )
         except ValueError as error:
@@ -44,24 +49,24 @@ class CreateFromAuditView(CreateView):
         return HttpResponseRedirect(self.get_success_url())
 
 
-class GenericAuditGroupDetailView(DetailView):
-    model = GenericAuditGroup
-    template_name = "genericauditgroup_detail.html"
+# class ModelImporterDetailView(DetailView):
+#     model = ModelImporter
+#     template_name = "modelimporter_detail.html"
 
 
-class GenericAuditGroupListView(ListView):
-    model = GenericAuditGroup
-    template_name = "genericauditgroup_list.html"
+# class ModelImporterListView(ListView):
+#     model = ModelImporter
+#     template_name = "modelimporter_list.html"
 
 
-class GenericAuditDetailView(DetailView):
-    model = GenericAudit
-    template_name = "genericaudit_detail.html"
+class ModelImportAttemptDetailView(DetailView):
+    model = ModelImportAttempt
+    template_name = "modelimportattempt_detail.html"
 
 
-class GenericAuditListView(ListView):
-    model = GenericAudit
-    template_name = "genericaudit_list.html"
+class ModelImportAttemptListView(ListView):
+    model = ModelImportAttempt
+    template_name = "modelimportattempt_list.html"
 
 
 class RowDataDetailView(DetailView):
@@ -74,21 +79,22 @@ class RowDataListView(ListView):
     template_name = "rowdata_list.html"
 
 
-class GenericAuditGroupBatchListView(ListView):
-    model = GenericAuditGroupBatch
+class FileImporterListView(ListView):
+    model = FileImporter
     template_name = "cases/generic_list.html"
 
 
-class GenericAuditGroupBatchDetailView(DetailView):
-    model = GenericAuditGroupBatch
-    template_name = "genericauditgroupbatch_detail.html"
+class FileImporterDetailView(DetailView):
+    model = FileImporter
+    template_name = "fileimporter_detail.html"
 
 
-class GenericBatchImportListView(ListView):
-    model = GenericBatchImport
+class FileImportAttemptListView(ListView):
+    model = FileImportAttempt
+    # TODO: BAD
     template_name = "cases/generic_list.html"
 
 
-class GenericBatchImportDetailView(DetailView):
-    model = GenericBatchImport
-    template_name = "genericbatchimport_detail.html"
+class FileImportAttemptDetailView(DetailView):
+    model = FileImportAttempt
+    template_name = "fileimportattempt_detail.html"

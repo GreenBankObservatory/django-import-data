@@ -6,35 +6,37 @@ from . import views
 from .forms import CaseForm
 
 from django_import_data.views import (
-    GenericAuditGroupDetailView,
-    GenericAuditGroupListView,
-    GenericAuditListView,
-    GenericAuditDetailView,
-    GenericAuditGroupBatchListView,
-    GenericAuditGroupBatchDetailView,
-    GenericBatchImportListView,
-    GenericBatchImportDetailView,
+    # ModelImporterDetailView,
+    # ModelImporterListView,
+    ModelImportAttemptListView,
+    ModelImportAttemptDetailView,
+    FileImporterListView,
+    FileImporterDetailView,
+    FileImportAttemptListView,
+    FileImportAttemptDetailView,
 )
 
 urlpatterns = [
     path("", RedirectView.as_view(url="/audit-groups")),
+    # path("audit-groups/", ModelImporterListView.as_view(), name="ModelImporter_list"),
+    # path(
+    #     "audit-groups/<int:pk>/",
+    #     ModelImporterDetailView.as_view(),
+    #     name="ModelImporter_detail",
+    # ),
     path(
-        "audit-groups/",
-        GenericAuditGroupListView.as_view(),
-        name="genericauditgroup_list",
+        "audits/", ModelImportAttemptListView.as_view(), name="ModelImportAttempt_list"
     ),
-    path(
-        "audit-groups/<int:pk>/",
-        GenericAuditGroupDetailView.as_view(),
-        name="genericauditgroup_detail",
-    ),
-    path("audits/", GenericAuditListView.as_view(), name="genericaudit_list"),
     path("cases/", views.CaseListView.as_view(), name="case_list"),
     path("people/", views.PersonListView.as_view(), name="person_list"),
     path("structures/", views.StructureListView.as_view(), name="structure_list"),
-    path("audits/", GenericAuditListView.as_view(), name="genericaudit_list"),
     path(
-        "audits/<int:pk>/", GenericAuditDetailView.as_view(), name="genericaudit_detail"
+        "audits/", ModelImportAttemptListView.as_view(), name="ModelImportAttempt_list"
+    ),
+    path(
+        "audits/<int:pk>/",
+        ModelImportAttemptDetailView.as_view(),
+        name="ModelImportAttempt_detail",
     ),
     path("cases/create", views.CaseCreateView.as_view(), name="case_create"),
     path("cases/<int:pk>/", views.CaseDetailView.as_view(), name="case_detail"),
@@ -46,37 +48,33 @@ urlpatterns = [
     ),
     path(
         "cases/create-from-audit/<int:audit_pk>/",
-        views.CaseCreateFromAuditView.as_view(),
+        views.CaseCreateFromImportAttemptView.as_view(),
         name="case_create_from_audit",
     ),
     path(
         "people/create-from-audit/<int:audit_pk>/",
-        views.PersonCreateFromAuditView.as_view(),
+        views.PersonCreateFromImportAttemptView.as_view(),
         name="person_create_from_audit",
     ),
     path(
         "structure/create-from-audit/<int:audit_pk>/",
-        views.StructureCreateFromAuditView.as_view(),
+        views.StructureCreateFromImportAttemptView.as_view(),
         name="structure_create_from_audit",
     ),
-    path(
-        "batches/",
-        GenericAuditGroupBatchListView.as_view(),
-        name="genericauditgroupbatch_list",
-    ),
+    path("batches/", FileImporterListView.as_view(), name="FileImporter_list"),
     path(
         "batches/<int:pk>/",
-        GenericAuditGroupBatchDetailView.as_view(),
-        name="genericauditgroupbatch_detail",
+        FileImporterDetailView.as_view(),
+        name="FileImporter_detail",
     ),
     path(
         "batch-imports/",
-        GenericBatchImportListView.as_view(),
-        name="genericbatchimport_list",
+        FileImportAttemptListView.as_view(),
+        name="FileImportAttempt_list",
     ),
     path(
         "batch-imports/<int:pk>/",
-        GenericBatchImportDetailView.as_view(),
-        name="genericbatchimport_detail",
+        FileImportAttemptDetailView.as_view(),
+        name="FileImportAttempt_detail",
     ),
 ]

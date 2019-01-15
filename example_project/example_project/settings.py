@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     "django_extensions",
     "django_import_data",
     "cases",
+    "sandbox",
 ]
 
 MIDDLEWARE = [

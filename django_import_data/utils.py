@@ -1,4 +1,5 @@
 from enum import Enum
+from django.core.serializers.json import DjangoJSONEncoder
 
 
 class OrderedEnum(Enum):
@@ -10,3 +11,11 @@ class OrderedEnum(Enum):
     def __gt__(self, other):
         _list = list(self.__class__)
         return _list.index(self) > _list.index(other)
+
+
+class DjangoErrorJSONEncoder(DjangoJSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, Exception):
+            return repr(obj)
+
+        return super().default(obj)

@@ -1,10 +1,10 @@
 from django.urls import reverse
-from django.views.generic.base import RedirectView
-from django_import_data.views import CreateFromAuditView
 from django.views.generic import CreateView
+from django.views.generic.base import RedirectView
 from django.views.generic.detail import DetailView
 from django.views.generic.list import ListView
-from django.contrib.contenttypes.models import ContentType
+
+from django_import_data.views import CreateFromImportAttemptView
 
 from .models import Person, Case, Structure
 from .forms import PersonForm, CaseForm, StructureForm
@@ -45,7 +45,7 @@ class PersonCreateView(CreateView):
     form_class = PersonForm
 
 
-class PersonCreateFromAuditView(CreateFromAuditView):
+class PersonCreateFromImportAttemptView(CreateFromImportAttemptView):
     model = Person
     form_class = PersonForm
     template_name = "cases/generic_form.html"
@@ -56,7 +56,7 @@ class CaseCreateView(CreateView):
     form_class = CaseForm
 
 
-class CaseCreateFromAuditView(CreateFromAuditView):
+class CaseCreateFromImportAttemptView(CreateFromImportAttemptView):
     model = Case
     form_class = CaseForm
     template_name = "cases/generic_form.html"
@@ -66,7 +66,7 @@ class StructureDetailView(DetailView):
     model = Structure
 
 
-class StructureCreateFromAuditView(CreateFromAuditView):
+class StructureCreateFromImportAttemptView(CreateFromImportAttemptView):
     model = Structure
     form_class = StructureForm
     template_name = "cases/generic_form.html"

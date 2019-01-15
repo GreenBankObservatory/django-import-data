@@ -1,8 +1,10 @@
-import os
+"""Django Import Data Models"""
 
-from django.contrib.contenttypes.fields import GenericRelation, GenericForeignKey
+import os
+from pprint import pformat
+
+from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
 from django.contrib.contenttypes.models import ContentType
-from django.contrib.gis.geos import GEOSGeometry
 from django.contrib.postgres.fields import JSONField
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import models
@@ -10,19 +12,48 @@ from django.urls import reverse
 from django.utils.functional import cached_property
 
 from .mixins import ImportStatusModel, TrackedModel
+from .utils import DjangoErrorJSONEncoder
 
 
-class DjangoErrorJSONEncoder(DjangoJSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, (Exception, GEOSGeometry)):
-            return repr(obj)
+### ABSTRACT BASE CLASSES ###
+class RowData(models.Model):
+    file_import_attempt = models.ForeignKey(
+        "django_import_data.FileImportAttempt",
+        on_delete=models.CASCADE,
+        related_name="rows",
+    )
+    data = JSONField(
+        help_text="Stores a 'row' (or similar construct) of data as it "
+        "was originally encountered",
+        encoder=DjangoJSONEncoder,
+    )
 
-        return super().default(obj)
+    # TODO: Surely there's a better, canonical way of doing this?
+    def get_audited_models(self):
+        """Return all AbstractBaseAuditedModel instances associated with this model
+
+        That is, return all model instances that were created from this row data
+        """
+        model_importers = []
+        if hasattr(self, "model_importers"):
+            model_importers.extend(self.genericauditgroup_model_importers.all())
+        thing = [ag.auditee for ag in model_importers if ag.auditee]
+        # print("thing", thing)
+        return thing
+
+    class Meta:
+        verbose_name = "Row Data"
+        verbose_name_plural = "Row Data"
+
+    def summary(self):
+        return f"Row data for models: {self.get_audited_models()}"
+
+    def get_absolute_url(self):
+        return reverse("rowdata_detail", args=[str(self.id)])
 
 
-# Change to: BaseImporterBatch
-class BaseAuditGroupBatch(TrackedModel, ImportStatusModel):
-    """Represents a "batch" of Audit Groups imported from the same file"""
+class AbstractBaseFileImporter(TrackedModel, ImportStatusModel):
+    """Represents a "batch" of Importers imported from the same file"""
 
     # TODO: Reconsider unique
     # TODO: Reconsider existence -- if cached_property used then this wouldn't be needed?
@@ -43,48 +74,32 @@ class BaseAuditGroupBatch(TrackedModel, ImportStatusModel):
         return os.path.basename(self.last_imported_path)
 
 
-# Change to: BatchImporterBatch
-class GenericAuditGroupBatch(BaseAuditGroupBatch):
-    class Meta:
-        ordering = ["-created_on"]
-        verbose_name = "Generic Audit Group Batch"
-        verbose_name_plural = "Generic Audit Group Batches"
+class AbstractBaseFileImportAttempt(TrackedModel, ImportStatusModel):
+    """Represents an individual attempt at an import of a "batch" of Importers"""
 
-    def get_absolute_url(self):
-        return reverse("genericauditgroupbatch_detail", args=[str(self.id)])
+    file_importer = NotImplemented
 
-    def gen_import(self, path):
-        return GenericBatchImport.objects.create(batch=self, imported_from=path)
-
-
-class BaseBatchImport(TrackedModel, ImportStatusModel):
-    """Represents an individual attempt at an import of a "batch" of Audit Groups"""
-
-    batch = models.ForeignKey(
-        GenericAuditGroupBatch, related_name="imports", on_delete=models.CASCADE
-    )
     # TODO: Make this a FileField?
     imported_from = models.CharField(
-        max_length=512, help_text="Path to file that this batch was imported from"
+        max_length=512,
+        default=None,
+        help_text="Path to file that this batch was imported from",
     )
     errors = JSONField(
         encoder=DjangoErrorJSONEncoder,
+        default=dict,
         null=True,
-        blank=True,
         help_text="Stores any batch/file-level errors encountered during import",
     )
 
     class Meta:
         abstract = True
 
-    def __str__(self):
-        return f"Batch Import {self.name}"
-
-    def save(self, *args, **kwargs):
-        # print("GBI save")
-        self.batch.status = self.status
-        self.batch.last_imported_path = self.imported_from
-        self.batch.save()
+    def save(self, *args, propagate_status=True, **kwargs):
+        if propagate_status and self.file_importer:
+            self.file_importer.status = self.status
+            self.file_importer.last_imported_path = self.imported_from
+            self.file_importer.save()
         super().save(*args, **kwargs)
 
     @cached_property
@@ -92,254 +107,231 @@ class BaseBatchImport(TrackedModel, ImportStatusModel):
         return os.path.basename(self.imported_from)
 
 
-class GenericBatchImport(BaseBatchImport):
-    class Meta:
-        ordering = ["-created_on"]
-        verbose_name = "Generic Batch Import"
-        verbose_name_plural = "Generic Batch Imports"
-
-    def get_absolute_url(self):
-        return reverse("genericbatchimport_detail", args=[str(self.id)])
-
-    # TODO: Remove this!
-    @property
-    def audit_groups(self):
-        return self.genericauditgroup_audit_groups
-
-
-# Change to: BaseImporter
-class BaseAuditGroup(TrackedModel, ImportStatusModel):
-    """Groups a set of Audits together"""
-
+class AbstractBaseModelImportAttempt(TrackedModel, ImportStatusModel):
+    # TODO: This MAYBE can be here
     row_data = models.ForeignKey(
-        "django_import_data.RowData",
-        related_name="%(class)s_audit_groups",
+        RowData,
+        related_name="%(class)s_attempts",
         on_delete=models.CASCADE,
         help_text="Reference to the original data used to create this audit group",
     )
-    form_map = models.CharField(max_length=64)
-    importee_class = models.CharField(max_length=64)
 
-    class Meta:
-        abstract = True
-
-    @cached_property
-    def name(self):
-        if "FormMap" not in self.form_map:
-            return self.form_map
-        return self.form_map[: len(self.form_map) - len("FormMap")].lower()
-
-
-# Change to: BaseImportAttempt
-class BaseAudit(TrackedModel, ImportStatusModel):
-    importer = NotImplemented
-    auditee_fields = JSONField(
+    importee_field_data = JSONField(
         encoder=DjangoErrorJSONEncoder,
-        null=True,
+        default=dict,
+        # null=True,
+        # blank=True,
         help_text="The original data used to create this Audit",
     )
     errors = JSONField(
         encoder=DjangoErrorJSONEncoder,
-        null=True,
+        default=dict,
+        # null=True,
+        # blank=True,
         help_text="Stores any errors encountered during the creation of the auditee",
     )
     error_summary = JSONField(
         encoder=DjangoErrorJSONEncoder,
-        null=True,
+        default=dict,
+        # null=True,
+        # blank=True,
         help_text="Stores any 'summary' information that might need to be associated",
     )
     imported_from = models.CharField(max_length=512)
+
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
+    # IF GFK
+    # object_id = models.PositiveIntegerField(null=True)
+    # importee = GenericForeignKey()
+
+    file_import_attempt = models.ForeignKey(
+        "django_import_data.FileImportAttempt",
+        related_name="model_import_attempts",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        help_text="Reference to the FileImportAttempt this was created from",
+    )
 
     class Meta:
         abstract = True
         ordering = ["-created_on"]
 
-    def save(self, *args, **kwargs):
-        # print("GA save")
-        if self.errors:
-            self.status = "rejected"
-        else:
-            self.status = "created_clean"
-
-        # The status of an importer should always be that status of its
-        # most recent import attempt
-        self.importer.status = self.status
-        self.importer.save()
-
-        super().save(*args, **kwargs)
-
     def __str__(self):
         return f"Audit {self.created_on} {self.imported_from} ({self.status})"
 
-
-class RowData(models.Model):
-    data = JSONField(
-        help_text="Stores a 'row' (or similar construct) of data as it "
-        "was originally encountered",
-        encoder=DjangoJSONEncoder,
-    )
-
-    # TODO: Surely there's a better, canonical way of doing this?
-    def get_audited_models(self):
-        """Return all AuditedModel instances associated with this model
-
-        That is, return all model instances that were created from this row data
-        """
-
-        # Get a list of field (attribute) names from associated AuditedModel
-        # instances
-        # fields = [
-        #     field.name
-        #     for field in self._meta.get_fields()
-        #     if field.related_model and issubclass(field.related_model, AuditedModel)
-        # ]
-        # # Now get the queryset for each of these fields and join them all together
-        # models = []
-        # for field in fields:
-        #     models.extend(getattr(self, field).all())
-        # return models
-        audit_groups = []
-        if hasattr(self, "audit_groups"):
-            audit_groups.extend(self.genericauditgroup_audit_groups.all())
-        thing = [ag.auditee for ag in audit_groups if ag.auditee]
-        # print("thing", thing)
-        return thing
-
-    class Meta:
-        verbose_name = "Row Data"
-        verbose_name_plural = "Row Data"
-
-    # def __str__(self):
-    #     return f"Row data for models: {self.get_audited_models()}"
-
-    def get_absolute_url(self):
-        return reverse("rowdata_detail", args=[str(self.id)])
-
-
-# Change to: Importer
-class GenericAuditGroup(BaseAuditGroup):
-    batch_import = models.ForeignKey(
-        GenericBatchImport,
-        related_name="%(class)s_audit_groups",
-        on_delete=models.CASCADE,
-        null=True,
-        blank=True,
-        help_text="Reference to the batch import this was created from",
-    )
-
-    class Meta:
-        verbose_name = "Generic Audit Group"
-        verbose_name_plural = "Generic Audit Groups"
-
-    def __str__(self):
-        if self.importee:
-            importee_str = self.importee
+    def save(self, *args, propagate_status=True, **kwargs):
+        if self.errors:
+            self.status = ImportStatusModel.STATUSES.rejected.name
         else:
-            importee_str = self.importee_class
+            self.status = ImportStatusModel.STATUSES.created_clean.name
 
-        return f"Audit Group for {importee_str} ({self.status})"
-
-    def save(self, *args, **kwargs):
-        # print("GAG save")
+        if propagate_status and self.file_import_attempt:
+            if (
+                self.STATUSES[self.file_import_attempt.status]
+                < self.STATUSES[self.status]
+            ):
+                self.file_import_attempt.status = self.status
+                self.file_import_attempt.save()
         super().save(*args, **kwargs)
-        if self.batch_import:
-            if self.STATUSES[self.batch_import.status] < self.STATUSES[self.status]:
-                self.batch_import.status = self.status
-                self.batch_import.save()
 
-    def get_absolute_url(self):
-        return reverse("genericauditgroup_detail", args=[str(self.id)])
-
-    def get_create_from_audit_url(self):
-        audit = self.audits.last()
-        return audit.get_create_from_audit_url()
-
-    def attempt(self, **kwargs):
-        kwargs["audit_group"] = kwargs.pop("importer")
-        return GenericAudit.objects.create(**kwargs)
-
-    def get_populated_related_objects(self):
-        return [
-            ro
-            for ro in self._meta.related_objects
-            if issubclass(ro.related_model, AuditedModel) and hasattr(self, ro.name)
-        ]
-
-    # @cached_property
-    # def importee_name(self):
-    #     if not self.importee:
-    #         return self.importee_class.__name__
-    #     return self.importee._meta.verbose_name
-
-    # @cached_property
-    # def importee_class(self):
-    #     ros = self.get_populated_related_objects()
-    #     if not ros:
-    #         return None
-    #     assert len(ros) == 1, "There shouldn't be multiple populated related querysets"
-    #     return ros[0].related_model
-
-    @cached_property
-    def importee(self):
-        ros = [getattr(self, ro.name) for ro in self.get_populated_related_objects()]
-        if not ros:
-            return None
-        assert len(ros) == 1, "There shouldn't be multiple populated related querysets"
-        return ros[0]
-
-
-# Change to: BaseImportAttempt
-class GenericAudit(BaseAudit):
-    audit_group = models.ForeignKey(
-        GenericAuditGroup,
-        related_name="audits",
-        on_delete=models.CASCADE,
-        help_text="Reference to the audit group that 'holds' this audit",
-    )
-
-    class Meta:
-        verbose_name = "Generic Audit"
-        verbose_name_plural = "Generic Audits"
-
-    def get_absolute_url(self):
-        return reverse("genericaudit_detail", args=[str(self.id)])
-
-    def get_create_from_audit_url(self):
-        return reverse(
-            f"{self.audit_group.importee_class}_create_from_audit".lower(),
-            args=[str(self.id)],
+    def summary(self):
+        return (
+            "I {created_str} a(n) {importee_class} instance {importee_str}from "
+            "data {importee_field_data} I converted from row {row_data}, which "
+            "I found in file {file_path}"
+        ).format(
+            created_str="created" if self.importee else "attempted to create",
+            importee_class=self.importee_class.__name__,
+            importee_str=f"({self.importee}) " if self.importee else "",
+            importee_field_data=pformat(self.importee_field_data),
+            row_data=pformat(self.row_data.data),
+            file_path=self.file_import_attempt.imported_from,
         )
 
     @property
-    def importer(self):
-        return self.audit_group
+    def importee_class(self):
+        return self.content_type.model_class()
+
+    # IF NO GFK
+    @property
+    def importee(self):
+        """Get the object we are auditing, if it exists, otherwise return None"""
+        return getattr(self, self.content_type.model, None)
+
+    # IF NO GFK
+    @importee.setter
+    def importee(self, instance):
+        """Set auditee to given object"""
+        return setattr(self, self.content_type.model, instance)
 
 
-class AuditedModel(models.Model):
-    # This can't be OneToOne because it's possible that more than one
-    # instance of a given model will be created from a given row
-    # row_data = models.ForeignKey(
-    #     RowData,
-    #     related_name="%(class)s_models",
-    #     on_delete=models.CASCADE,
-    #     help_text="Reference to the original data used to create this model",
+### CONCRETE CLASSES ###
+
+
+class FileImporterManager(models.Manager):
+    def create_with_attempt(self, path, errors=None):
+        fi = self.create(last_imported_path=path)
+        fia = FileImportAttempt.objects.create(
+            imported_from=path, file_importer=fi, errors=errors
+        )
+        return fi, fia
+
+
+class FileImporter(AbstractBaseFileImporter):
+    objects = FileImporterManager()
+
+    class Meta:
+        ordering = ["-created_on"]
+        verbose_name = "File Importer"
+        verbose_name_plural = "File Importers"
+
+    def get_absolute_url(self):
+        return reverse("fileimporter_detail", args=[str(self.id)])
+
+    def gen_import(self, path):
+        return FileImportAttempt.objects.create(batch=self, imported_from=path)
+
+
+class FileImportAttempt(AbstractBaseFileImportAttempt):
+    # TODO: Just importer?
+    file_importer = models.ForeignKey(
+        FileImporter, related_name="import_attempts", on_delete=models.CASCADE
+    )
+
+    class Meta:
+        ordering = ["-created_on"]
+        verbose_name = "File Import Attempt"
+        verbose_name_plural = "File Import Attempts"
+
+    def get_absolute_url(self):
+        return reverse("fileimportattempt_detail", args=[str(self.id)])
+
+
+class ModelImportAttemptManager(models.Manager):
+    def create_for_model(self, model, **kwargs):
+        return self.create(
+            content_type=ContentType.objects.get_for_model(model), **kwargs
+        )
+
+
+class ModelImportAttempt(AbstractBaseModelImportAttempt):
+    # NOTE: We override this here to give it a more sensible related_name
+    row_data = models.ForeignKey(
+        RowData,
+        related_name="import_attempts",
+        on_delete=models.CASCADE,
+        help_text="Reference to the original data used to create this audit group",
+    )
+    objects = ModelImportAttemptManager()
+
+    class Meta:
+        verbose_name = "Model Import Attempt"
+        verbose_name_plural = "Model Import Attempts"
+
+    def get_absolute_url(self):
+        return reverse("modelimportattempt_detail", args=[str(self.id)])
+
+    def get_create_from_import_attempt_url(self):
+        return reverse(
+            f"{self.model_importer.importee_class}_create_from_audit".lower(),
+            args=[str(self.id)],
+        )
+
+    def delete(self, *args, **kwargs):
+        if self.importee:
+            num_importee_deletions, importee_deletions = self.importee.delete()
+        num_deletions, deletions = super().delete(*args, **kwargs)
+        return (
+            num_deletions + num_importee_deletions,
+            {**deletions, **importee_deletions},
+        )
+
+
+### MODEL MIXINS ###
+
+
+# class AuditedModelManager(models.Manager):
+#     def create_with_audit(self, model_kwargs, audit_kwargs):
+#         model = self.model(**model_kwargs)
+#         audit = ModelImportAttempt.objects.create_for_model(**audit_kwargs)
+#         model.model_import_attempt = audit
+#         model.save()
+#         return model, audit
+
+
+class AbstractBaseAuditedModel(models.Model):
+    # NO GFK
+    model_import_attempt = models.OneToOneField(
+        ModelImportAttempt, on_delete=models.CASCADE, unique=True, null=True, blank=True
+    )
+    # IF GFK
+    # model_import_attempts = GenericRelation(
+    #     ModelImportAttempt, related_query_name="%(class)s_imported_models"
     # )
-    # audit_groups = GenericRelation(
-    #     GenericAuditGroup,
-    #     help_text="Reference to the audit group that stores audit history regarding this model",
-    #     # TODO: Still not sure how to use this
-    #     related_query_name="models",
-    # )
-    # objects = GenericAuditManager()
 
-    audit_group = models.OneToOneField(GenericAuditGroup, on_delete=models.CASCADE)
+    # objects = AuditedModelManager()
+
+    # IF GFK
+    # @property
+    # def model_import_attempt(self):
+    #     return self.model_import_attempts.first()
+
+    # IF GFK
+    # @model_import_attempt.setter
+    # def model_import_attempt(self, instance):
+    #     return self.model_import_attempts.set([instance])
 
     class Meta:
         abstract = True
 
-    # audit_groups is actually a 1:1 relationship, so we
-    # can safely make audit_group available like this
-    # for the sake of convenience
-    # @cached_property
-    # def audit_group(self):
-    #     return self.audit_groups.first()
+    def save(self, *args, **kwargs):
+        if self.model_import_attempt.importee_class != self.__class__:
+            raise ValueError(
+                "Mismatched importee class designations! "
+                f"Our class ({self.__class__}) differs from "
+                "self.model_import_attempt.importee_class "
+                f"({self.model_import_attempt.importee_class}! "
+            )
+
+        super().save(*args, **kwargs)
