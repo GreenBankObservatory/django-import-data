@@ -1,0 +1,31 @@
+{% extends "cases/base.html" %}
+{% load django_import_data_tags %}
+
+{% block content %}
+
+<h1>{{ fileimportattempt }}</h1>
+
+<p><a href=file://{{ object.imported_from }}>Open original file: {{object.name}}</a></p>
+
+<h2>File-Level Import Errors</h2>
+{% if fileimportattempt.errors %}
+{{ fileimportattempt.errors | json | safe }}
+{% else %}
+<p>None</p>
+{% endif %}
+
+<h2>Model Import Attempts</h2>
+<ul>
+    {% for mia in fileimportattempt.model_import_attempts.all %}
+    <li>
+        <a href={{mia.get_absolute_url}}>{{ mia }}</a>
+        {% if mia.auditee %}
+        : <a href={{ mia.auditee.get_absolute_url }}>{{ mia.auditee }}</a>
+        {% endif %}
+    </li>
+    {% endfor %}
+</ul>
+
+
+
+{% endblock %}

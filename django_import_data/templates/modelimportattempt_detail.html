@@ -1,0 +1,19 @@
+{% extends "cases/base.html" %}
+{% load django_import_data_tags %}
+
+{% block content %}
+
+<h1>{{ modelimportattempt }}</h1>
+
+{% if modelimportattempt.importee %}
+<p><a href={{ modelimportattempt.importee.get_absolute_url}}>View created {{ modelimportattempt.importee_class | model_name }} {{ modelimportattempt.importee }}</a></p>
+{% else %}
+<p><a href={{ modelimportattempt.get_create_from_import_attempt_url }}>Create {{ modelimportattempt.importee_class | model_name }} from Model Import Attempt {{ modelimportattempt.id }}</a></p>
+{% endif %}
+
+<h2>Original Values</h2>
+{{ modelimportattempt.importee_field_data | json | safe }}
+
+<h2>Errors</h2>
+{{ modelimportattempt.errors | json | safe }}
+{% endblock %}

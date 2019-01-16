@@ -13,7 +13,10 @@ from django.apps import apps
 
 
 class BaseImportCommand(BaseCommand):
+    # output will automatically be wrapped with BEGIN; and COMMIT;
     output_transaction = True
+    # prints a warning if the set of migrations on disk don’t match the migrations in the database
+    requires_migrations_checks = True
 
     @staticmethod
     def add_core_arguments(parser):
@@ -67,19 +70,17 @@ class BaseImportCommand(BaseCommand):
         return [rows[index] for index in random_indices]
 
     def handle_rows(self, path, durable=False, **options):
-        GenericAuditGroupBatch = apps.get_model(
-            "django_import_data.GenericAuditGroupBatch"
-        )
-        GenericBatchImport = apps.get_model("django_import_data.GenericBatchImport")
+        FileImporter = apps.get_model("django_import_data.FileImporter")
+        FileImportAttempt = apps.get_model("django_import_data.FileImportAttempt")
         # TODO: How to handle changes in path? That is, if a Batch file is moved
         # somewhere else we still need a way to force its association with the
         # existing Batch in the DB. Allow explicit Batch ID to be passed in?
         # Some other unique ID?
-        batch, batch_created = GenericAuditGroupBatch.objects.get_or_create(
+        file_importer, file_importer_created = FileImporter.objects.get_or_create(
             last_imported_path=path
         )
-        batch_import = GenericBatchImport.objects.create(
-            batch=batch, imported_from=path
+        file_import_attempt = FileImportAttempt.objects.create(
+            file_importer=file_importer, imported_from=path
         )
         rows = list(self.load_rows(path))
         limit = options.get("limit", None)
@@ -88,7 +89,7 @@ class BaseImportCommand(BaseCommand):
 
         for row in tqdm(rows, desc=self.help, unit="rows"):
             try:
-                audits = self.handle_row(row, batch_import)
+                audits = self.handle_row(row, file_import_attempt)
             except ValueError as error:
                 tqdm.write(f"Failed to handle row (conversion errors): {row}")
                 if not durable:

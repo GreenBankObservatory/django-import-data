@@ -97,10 +97,10 @@ class FormMap:
             errors,
         )
 
-    def save_with_audit(self, row_data, form=None, batch_import=None, **kwargs):
+    # TODO: remove file_import_attempt; use row_data.file_import_attempt
+    def save_with_audit(self, row_data, form=None, file_import_attempt=None, **kwargs):
         from django.contrib.contenttypes.models import ContentType
-        from .models import GenericAuditGroup
-
+        from django_import_data.models import ModelImportAttempt
         from .models import RowData
 
         if not isinstance(row_data, RowData):
@@ -114,25 +114,15 @@ class FormMap:
             form, conversion_errors = self.render(row_data.data, **kwargs)
 
         if form.is_valid():
-            # TODO: .create_with_attempt
-            if self.importer_class is NotImplemented:
-                importer = GenericAuditGroup.objects.create(
-                    batch_import=batch_import,
-                    form_map=self.__class__.__name__,
-                    row_data=row_data,
-                    importee_class=form.Meta.model.__name__,
-                )
-            else:
-                kwargs = dict(form_map=self.__class__.__name__, row_data=row_data)
-                if batch_import:
-                    kwargs["batch_import"] = batch_import
-                importer = self.importer_class.objects.create(**kwargs)
-
-            import_attempt = importer.attempt(
-                importer=importer, auditee_fields=form.data
+            model_import_attempt = ModelImportAttempt.objects.create_for_model(
+                importee_field_data=form.data,
+                file_import_attempt=file_import_attempt,
+                model=form.Meta.model,
+                row_data=row_data,
             )
             instance = form.save(commit=False)
-            instance.audit_group = importer
+            # TODO: Make manager method to handle this
+            model_import_attempt.importee = instance
             instance.save()
             return instance, None
 
@@ -142,24 +132,15 @@ class FormMap:
             "conversion_errors": conversion_errors,
             "form_errors": useful_form_errors,
         }
-        if self.importer_class is NotImplemented:
-            importer = GenericAuditGroup.objects.create(
-                batch_import=batch_import,
-                form_map=self.__class__.__name__,
-                row_data=row_data,
-                importee_class=form.Meta.model.__name__,
-            )
-        else:
-            kwargs = dict(form_map=self.__class__.__name__, row_data=row_data)
-            if batch_import:
-                kwargs["batch_import"] = batch_import
 
-            importer = self.importer_class.objects.create(**kwargs)
-
-        import_attempt = importer.attempt(
-            importer=importer, auditee_fields=form.data, errors=all_errors
+        model_import_attempt = ModelImportAttempt.objects.create_for_model(
+            importee_field_data=form.data,
+            errors=all_errors,
+            file_import_attempt=file_import_attempt,
+            model=form.Meta.model,
+            row_data=row_data,
         )
-        return None, import_attempt
+        return None, model_import_attempt
 
     # TODO: handle common functionality
     def save(self, data, **kwargs):

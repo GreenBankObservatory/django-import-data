@@ -63,7 +63,7 @@ class AbstractBaseFileImporter(TrackedModel, ImportStatusModel):
         abstract = True
 
     def __str__(self):
-        return f"Batch {self.name}"
+        return f"File Importer for {self.name}"
 
     @property
     def most_recent_import(self):
@@ -94,6 +94,9 @@ class AbstractBaseFileImportAttempt(TrackedModel, ImportStatusModel):
 
     class Meta:
         abstract = True
+
+    def __str__(self):
+        return f"{self.name}: {self.get_status_display()}"
 
     def save(self, *args, propagate_status=True, **kwargs):
         if propagate_status and self.file_importer:
@@ -158,7 +161,10 @@ class AbstractBaseModelImportAttempt(TrackedModel, ImportStatusModel):
         ordering = ["-created_on"]
 
     def __str__(self):
-        return f"Audit {self.created_on} {self.imported_from} ({self.status})"
+        return (
+            f"{self.content_type} imported from "
+            f"{os.path.basename(self.imported_from)} ({self.get_status_display()})"
+        )
 
     def save(self, *args, propagate_status=True, **kwargs):
         if self.errors:
@@ -274,8 +280,7 @@ class ModelImportAttempt(AbstractBaseModelImportAttempt):
 
     def get_create_from_import_attempt_url(self):
         return reverse(
-            f"{self.model_importer.importee_class}_create_from_audit".lower(),
-            args=[str(self.id)],
+            f"{self.content_type.model}_create_from_audit", args=[str(self.id)]
         )
 
     def delete(self, *args, **kwargs):
@@ -326,7 +331,10 @@ class AbstractBaseAuditedModel(models.Model):
         abstract = True
 
     def save(self, *args, **kwargs):
-        if self.model_import_attempt.importee_class != self.__class__:
+        if (
+            self.model_import_attempt
+            and self.model_import_attempt.importee_class != self.__class__
+        ):
             raise ValueError(
                 "Mismatched importee class designations! "
                 f"Our class ({self.__class__}) differs from "
