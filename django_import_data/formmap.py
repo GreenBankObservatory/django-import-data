@@ -3,6 +3,8 @@ import json
 
 from django.forms import ModelForm, ValidationError
 
+DEFAULT_THRESHOLD = 0.7
+
 
 def get_useful_form_errors(form):
     return [
@@ -81,21 +83,32 @@ class FormMap:
         return rendered, errors
 
     def render(
-        self, data, extra=None, allow_unknown=True, allow_conversion_errors=True
+        self,
+        data,
+        extra=None,
+        allow_unknown=True,
+        allow_conversion_errors=True,
+        allow_empty_forms=False,
     ):
         if not self.form_class:
             raise ValueError("No FormMap.form_class defined; cannot render a form!")
         if extra is None:
             extra = {}
-        rendered, errors = self.render_dict(data, allow_unknown)
-        if errors and not allow_conversion_errors:
-            raise ValueError(f"One or more conversion errors: {errors}")
-        return (
-            self.form_class(
+        rendered, conversion_errors = self.render_dict(data, allow_unknown)
+        if conversion_errors and not allow_conversion_errors:
+            raise ValueError(f"One or more conversion errors: {conversion_errors}")
+
+        if not allow_empty_forms and not any(rendered.values()):
+            # print(
+            #     f"No values were derived for {self.form_class}; skipping creation attempt"
+            # )
+            rendered_form = None
+        else:
+            rendered_form = self.form_class(
                 {**self.form_defaults, **extra, **rendered}, **self.form_kwargs
-            ),
-            errors,
-        )
+            )
+
+        return (rendered_form, conversion_errors)
 
     # TODO: remove file_import_attempt; use row_data.file_import_attempt
     def save_with_audit(self, row_data, form=None, file_import_attempt=None, **kwargs):
@@ -112,6 +125,12 @@ class FormMap:
             # Thus, if it is _not_ a ModelForm instance, we need to render it
             # ourselves
             form, conversion_errors = self.render(row_data.data, **kwargs)
+        # print(form)
+        # import ipdb
+
+        # ipdb.set_trace()
+        if form is None:
+            return (None, None)
 
         if form.is_valid():
             model_import_attempt = ModelImportAttempt.objects.create_for_model(

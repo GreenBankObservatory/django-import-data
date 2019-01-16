@@ -53,7 +53,7 @@ class RowData(models.Model):
 
 
 class AbstractBaseFileImporter(TrackedModel, ImportStatusModel):
-    """Represents a "batch" of Importers imported from the same file"""
+    """Representation of all attempts to import a specific file"""
 
     # TODO: Reconsider unique
     # TODO: Reconsider existence -- if cached_property used then this wouldn't be needed?
