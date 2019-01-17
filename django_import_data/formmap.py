@@ -1,5 +1,4 @@
-import json
-
+from tqdm import tqdm
 
 from django.forms import ModelForm, ValidationError
 
@@ -59,7 +58,7 @@ class FormMap:
 
     def render_dict(self, data, allow_unknown=True):
         rendered = {}
-        errors = {}
+        errors = []
 
         if self.check_next_render_for_errors:
             # Turn off error checking now unless user has specified
@@ -78,8 +77,14 @@ class FormMap:
             try:
                 rendered.update(field_map.render(data))
             except ValueError as error:
-                errors[repr(field_map)] = repr(error)
-
+                errors.append(
+                    {
+                        "error": repr(error),
+                        "from_fields": field_map.from_fields,
+                        "to_fields": field_map.to_fields,
+                        "converter": field_map.converter.__name__,
+                    }
+                )
         return rendered, errors
 
     def render(
@@ -99,7 +104,7 @@ class FormMap:
             raise ValueError(f"One or more conversion errors: {conversion_errors}")
 
         if not allow_empty_forms and not any(rendered.values()):
-            # print(
+            # tqdm.write(
             #     f"No values were derived for {self.form_class}; skipping creation attempt"
             # )
             rendered_form = None
@@ -125,10 +130,6 @@ class FormMap:
             # Thus, if it is _not_ a ModelForm instance, we need to render it
             # ourselves
             form, conversion_errors = self.render(row_data.data, **kwargs)
-        # print(form)
-        # import ipdb
-
-        # ipdb.set_trace()
         if form is None:
             return (None, None)
 
@@ -138,12 +139,13 @@ class FormMap:
                 file_import_attempt=file_import_attempt,
                 model=form.Meta.model,
                 row_data=row_data,
+                imported_by=self.__class__.__name__,
             )
             instance = form.save(commit=False)
             # TODO: Make manager method to handle this
             model_import_attempt.importee = instance
             instance.save()
-            return instance, None
+            return instance, model_import_attempt
 
         useful_form_errors = get_useful_form_errors(form)
 
@@ -158,6 +160,7 @@ class FormMap:
             file_import_attempt=file_import_attempt,
             model=form.Meta.model,
             row_data=row_data,
+            imported_by=self.__class__.__name__,
         )
         return None, model_import_attempt
 

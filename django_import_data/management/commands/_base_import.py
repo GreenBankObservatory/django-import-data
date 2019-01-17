@@ -1,14 +1,13 @@
 import csv
-
-# from pprint import pformat
 import json
+from pprint import pformat
 import random
 
 from tqdm import tqdm
 
 from django.core.management.base import BaseCommand
 from django.db import transaction
-
+from django.db.models import Count, Q, F
 from django.apps import apps
 
 
@@ -39,6 +38,13 @@ class BaseImportCommand(BaseCommand):
             type=float,
             help="Specify a random percentage [0.0 - 1.0] of rows that should be processed",
         )
+        parser.add_argument(
+            "-r",
+            "--rows",
+            nargs="+",
+            type=int,
+            help="List of specific rows to process (by index)",
+        )
         return parser
 
     def add_arguments(self, parser):
@@ -62,6 +68,8 @@ class BaseImportCommand(BaseCommand):
             return rows
         num_rows = len(rows)
         goal = int(num_rows * limit)
+        if goal < 1:
+            goal = 1
 
         random_indices = set()
         while len(random_indices) < goal:
@@ -83,39 +91,119 @@ class BaseImportCommand(BaseCommand):
             file_importer=file_importer, imported_from=path
         )
         rows = list(self.load_rows(path))
+        rows_to_process = options.get("rows", None)
+        if rows_to_process:
+            rows = [rows[ri] for ri in rows_to_process]
+            tqdm.write(f"Processing only rows {rows_to_process}")
+
         limit = options.get("limit", None)
         if limit is not None:
             rows = self.get_random_rows(rows, limit)
+            tqdm.write(
+                f"Processing {len(rows)} rows ({limit * 100:.2f}% "
+                "of rows, randomly selected)"
+            )
 
-        for row in tqdm(rows, desc=self.help, unit="rows"):
-            try:
-                audits = self.handle_row(row, file_import_attempt)
-            except ValueError as error:
-                tqdm.write(f"Failed to handle row (conversion errors): {row}")
-                if not durable:
-                    raise error
-                tqdm.write(f"  Error: {error!r}")
-            else:
-                # if not isinstance(audits, dict) is None:
-                #     raise ValueError("handle_row must return audit info as a dict!")
-                errors = {
-                    formmap_name: audit.errors
-                    for formmap_name, audit in audits.items()
-                    if audit
-                }
-                if errors:
-                    error_str = (
-                        f"Row handled, but had {len(errors)} errors:\n"
-                        f"{json.dumps(errors, indent=2)}"
+        all_errors = []
+
+        for ri, row in enumerate(tqdm(rows, desc=self.help, unit="rows")):
+            row_data = self.handle_row(row, file_import_attempt)
+            errors = {
+                import_attempt.imported_by: import_attempt.errors
+                for import_attempt in row_data.import_attempts.all()
+                if import_attempt.errors
+            }
+            # TODO: Make status an int in the DB so we can do calcs easier
+            if errors:
+                error_str = (
+                    f"Row {ri} handled, but had {len(errors)} errors:\n"
+                    f"{json.dumps(errors, indent=2)}"
+                )
+                if durable:
+                    tqdm.write(error_str)
+                else:
+                    raise ValueError(error_str)
+
+                all_errors.append(errors)
+
+        creations, errors = self.summary(file_import_attempt, all_errors)
+        file_import_attempt.creations = creations
+        file_import_attempt.errors = errors
+        file_import_attempt.save()
+
+    def summary(self, file_import_attempt, all_errors):
+        error_summary = {}
+        total_form_errors = 0
+        total_conversion_errors = 0
+        creations = (
+            file_import_attempt.rows.filter(
+                import_attempts__status__startswith="created"
+            )
+            .values(model=F("import_attempts__content_type__model"))
+            .annotate(creation_count=Count("import_attempts__status"))
+        )
+
+        for row_errors in all_errors:
+            for attribute, attribute_errors in row_errors.items():
+                error_summary.setdefault(attribute, {})
+                total_conversion_errors += len(attribute_errors["conversion_errors"])
+                for conversion_error in attribute_errors["conversion_errors"]:
+                    error_summary[attribute].setdefault("conversion_errors", {})
+                    error_summary[attribute]["conversion_errors"].setdefault("count", 0)
+                    error_summary[attribute]["conversion_errors"]["count"] += len(
+                        conversion_error
                     )
-                    if durable:
-                        tqdm.write(error_str)
-                    else:
-                        raise ValueError(error_str)
+
+                    error_summary[attribute]["conversion_errors"].setdefault(
+                        "fields", []
+                    )
+                    if (
+                        conversion_error["from_fields"]
+                        not in error_summary[attribute]["conversion_errors"]["fields"]
+                    ):
+                        error_summary[attribute]["conversion_errors"]["fields"].append(
+                            conversion_error["from_fields"]
+                        )
+
+                total_form_errors += len(attribute_errors["form_errors"])
+                for form_error in attribute_errors["form_errors"]:
+                    error_summary[attribute].setdefault("form_errors", {})
+                    error_summary[attribute]["form_errors"].setdefault("count", 0)
+                    error_summary[attribute]["form_errors"]["count"] += len(form_error)
+
+                    error_summary[attribute]["form_errors"].setdefault("fields", [])
+                    if (
+                        form_error["field"]
+                        not in error_summary[attribute]["form_errors"]["fields"]
+                    ):
+                        error_summary[attribute]["form_errors"]["fields"].append(
+                            form_error["field"]
+                        )
+        tqdm.write("=" * 80)
+        tqdm.write("Model Import Summary:")
+        for creation in creations:
+            print("Created {creation_count} {model} objects".format(**creation))
+        tqdm.write("-" * 80)
+        tqdm.write("Error Summary:")
+        tqdm.write(pformat(error_summary))
+        tqdm.write(
+            f"  Encountered {total_form_errors + total_conversion_errors} total errors "
+            f"across {len(error_summary)} attribute(s):"
+        )
+        tqdm.write("=" * 80)
+        for attribute, attribute_errors in error_summary.items():
+            tqdm.write(f"    {attribute} had {len(attribute_errors)} type(s) of error:")
+            for error_type, errors_of_type in attribute_errors.items():
+                tqdm.write(f"      {error_type}:")
+                tqdm.write(
+                    f"        {errors_of_type['count']} errors across fields: {errors_of_type['fields']}"
+                )
+
+        return [dict(creation) for creation in creations], error_summary
 
     @transaction.atomic
     def handle(self, *args, **options):
         self.handle_rows(*args, **options)
         if options["dry_run"]:
             transaction.set_rollback = True
-            print("DRY RUN; rolling back changes")
+            tqdm.write("DRY RUN; rolling back changes")

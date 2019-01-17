@@ -51,6 +51,9 @@ class RowData(models.Model):
     def get_absolute_url(self):
         return reverse("rowdata_detail", args=[str(self.id)])
 
+    # def status(self):
+    #     return self.import_attempts.filter(status="rejected").exists()
+
 
 class AbstractBaseFileImporter(TrackedModel, ImportStatusModel):
     """Representation of all attempts to import a specific file"""
@@ -83,13 +86,14 @@ class AbstractBaseFileImportAttempt(TrackedModel, ImportStatusModel):
     imported_from = models.CharField(
         max_length=512,
         default=None,
-        help_text="Path to file that this batch was imported from",
+        help_text="Path to file that this was imported from",
     )
+    creations = JSONField(encoder=DjangoErrorJSONEncoder, default=dict, null=True)
     errors = JSONField(
         encoder=DjangoErrorJSONEncoder,
         default=dict,
         null=True,
-        help_text="Stores any batch/file-level errors encountered during import",
+        help_text="Stores any file-level errors encountered during import",
     )
 
     class Meta:
@@ -141,7 +145,7 @@ class AbstractBaseModelImportAttempt(TrackedModel, ImportStatusModel):
         help_text="Stores any 'summary' information that might need to be associated",
     )
     imported_from = models.CharField(max_length=512)
-
+    imported_by = models.CharField(max_length=128)
     content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
     # IF GFK
     # object_id = models.PositiveIntegerField(null=True)
