@@ -1,5 +1,6 @@
 """Django Import Data Models"""
 
+from collections import Counter
 import os
 from pprint import pformat
 
@@ -113,6 +114,29 @@ class AbstractBaseFileImportAttempt(TrackedModel, ImportStatusModel):
     def name(self):
         return os.path.basename(self.imported_from)
 
+    # TODO: Unit tests!
+    def delete_imported_models(self):
+        """Delete all models imported by this FIA"""
+
+        num_deletions = 0
+        deletions = Counter()
+        # For every ContentType imported by this FIA...
+        for ct in ContentType.objects.filter(
+            id__in=self.model_import_attempts.values("content_type")
+        ):
+            # ...get a queryset of all model instances that were imported...
+            to_delete = ct.model_class().objects.filter(
+                model_import_attempt__file_import_attempt=self
+            )
+            # ...and delete them:
+            num_deletions_for_model_class, deletions_for_model_class = (
+                to_delete.delete()
+            )
+            num_deletions += num_deletions_for_model_class
+            deletions += deletions_for_model_class
+
+        return (num_deletions, deletions)
+
 
 class AbstractBaseModelImportAttempt(TrackedModel, ImportStatusModel):
     # TODO: This MAYBE can be here
@@ -214,6 +238,25 @@ class AbstractBaseModelImportAttempt(TrackedModel, ImportStatusModel):
     def importee(self, instance):
         """Set auditee to given object"""
         return setattr(self, self.content_type.model, instance)
+
+    # TODO: UNIt tests!
+    def delete_imported_models(self):
+        """Delete all models imported by this MIA"""
+
+        num_deletions = 0
+        deletions = Counter()
+        # For every ContentType imported by this MIA...
+        for ct in ContentType.objects.filter(id__in=self.values("content_type")):
+            # ...get a queryset of all model instances that were imported...
+            to_delete = ct.model_class().objects.filter(model_import_attempt=self)
+            # ...and delete them:
+            num_deletions_for_model_class, deletions_for_model_class = (
+                to_delete.delete()
+            )
+            num_deletions += num_deletions_for_model_class
+            deletions += deletions_for_model_class
+
+        return (num_deletions, deletions)
 
 
 ### CONCRETE CLASSES ###

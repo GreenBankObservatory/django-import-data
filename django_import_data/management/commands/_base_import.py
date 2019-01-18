@@ -33,6 +33,14 @@ class BaseImportCommand(BaseCommand):
             "-D", "--durable", action="store_true", help="Continue past row errors"
         )
         parser.add_argument(
+            "--overwrite",
+            action="store_true",
+            help=(
+                # TODO: NEEDS WORK
+                "Overwrite previous FIA"
+            ),
+        )
+        parser.add_argument(
             "-l",
             "--limit",
             type=float,
@@ -77,16 +85,34 @@ class BaseImportCommand(BaseCommand):
 
         return [rows[index] for index in random_indices]
 
-    def handle_rows(self, path, durable=False, **options):
+    def handle_rows(self, path, durable=False, overwrite=False, **options):
         FileImporter = apps.get_model("django_import_data.FileImporter")
         FileImportAttempt = apps.get_model("django_import_data.FileImportAttempt")
         # TODO: How to handle changes in path? That is, if a Batch file is moved
         # somewhere else we still need a way to force its association with the
         # existing Batch in the DB. Allow explicit Batch ID to be passed in?
         # Some other unique ID?
+        if FileImporter.objects.filter(last_imported_path=path).exists():
+            file_importer = FileImporter.objects.get(last_imported_path=path)
         file_importer, file_importer_created = FileImporter.objects.get_or_create(
             last_imported_path=path
         )
+        previous_file_import_attempt = file_importer.import_attempts.order_by(
+            "created_on"
+        ).last()
+        if previous_file_import_attempt:
+            tqdm.write(
+                f"Previous FIA found; deleting it: {previous_file_import_attempt}"
+            )
+            if not overwrite:
+                raise ValueError(
+                    f"Found previous File Import Attempt '{previous_file_import_attempt}', "
+                    "but cannot delete it due to presence of overwrite=False!"
+                )
+            num_deletions, deletions = (
+                previous_file_import_attempt.delete_imported_models()
+            )
+            print(f"Deleted {num_deletions} models:\n{pformat(deletions)}")
         file_import_attempt = FileImportAttempt.objects.create(
             file_importer=file_importer, imported_from=path
         )
