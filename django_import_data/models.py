@@ -360,7 +360,7 @@ class ModelImportAttempt(AbstractBaseModelImportAttempt):
 class AbstractBaseAuditedModel(models.Model):
     # NO GFK
     model_import_attempt = models.OneToOneField(
-        ModelImportAttempt, on_delete=models.CASCADE, unique=True, null=True, blank=True
+        ModelImportAttempt, on_delete=models.CASCADE, unique=True
     )
     # IF GFK
     # model_import_attempts = GenericRelation(

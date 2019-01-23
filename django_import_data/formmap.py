@@ -155,10 +155,9 @@ class FormMap:
                 imported_by=self.__class__.__name__,
                 errors=all_errors,
             )
-            instance = form.save()
-            # TODO: Make manager method to handle this
-            model_import_attempt.importee = instance
-            model_import_attempt.save()
+            instance = form.save(commit=False)
+            instance.model_import_attempt = model_import_attempt
+            instance.save()
             return instance, model_import_attempt
 
         model_import_attempt = ModelImportAttempt.objects.create_for_model(
