@@ -1,3 +1,5 @@
+from pprint import pformat
+
 from tqdm import tqdm
 
 from django.forms import ModelForm, ValidationError
@@ -100,8 +102,11 @@ class FormMap:
         if extra is None:
             extra = {}
         rendered, conversion_errors = self.render_dict(data, allow_unknown)
-        if conversion_errors and not allow_conversion_errors:
-            raise ValueError(f"One or more conversion errors: {conversion_errors}")
+        if conversion_errors:
+            if allow_conversion_errors:
+                tqdm.write(f"Conversion errors: {pformat(conversion_errors)}")
+            else:
+                raise ValueError(f"One or more conversion errors: {conversion_errors}")
 
         if not allow_empty_forms and not any(rendered.values()):
             # tqdm.write(
