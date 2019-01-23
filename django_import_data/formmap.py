@@ -138,6 +138,14 @@ class FormMap:
         if form is None:
             return (None, None)
 
+        useful_form_errors = get_useful_form_errors(form)
+
+        all_errors = {}
+        if conversion_errors:
+            all_errors["conversion_errors"] = conversion_errors
+        if useful_form_errors:
+            all_errors["form_errors"] = useful_form_errors
+
         if form.is_valid():
             model_import_attempt = ModelImportAttempt.objects.create_for_model(
                 importee_field_data=form.data,
@@ -145,19 +153,13 @@ class FormMap:
                 model=form.Meta.model,
                 row_data=row_data,
                 imported_by=self.__class__.__name__,
+                errors=all_errors,
             )
-            instance = form.save(commit=False)
+            instance = form.save()
             # TODO: Make manager method to handle this
             model_import_attempt.importee = instance
-            instance.save()
+            model_import_attempt.save()
             return instance, model_import_attempt
-
-        useful_form_errors = get_useful_form_errors(form)
-
-        all_errors = {
-            "conversion_errors": conversion_errors,
-            "form_errors": useful_form_errors,
-        }
 
         model_import_attempt = ModelImportAttempt.objects.create_for_model(
             importee_field_data=form.data,

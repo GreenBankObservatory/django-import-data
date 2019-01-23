@@ -28,6 +28,7 @@ class RowData(models.Model):
         "was originally encountered",
         encoder=DjangoJSONEncoder,
     )
+    row_num = models.PositiveIntegerField()
 
     # TODO: Surely there's a better, canonical way of doing this?
     def get_audited_models(self):
@@ -108,6 +109,7 @@ class AbstractBaseFileImportAttempt(TrackedModel, ImportStatusModel):
             self.file_importer.status = self.status
             self.file_importer.last_imported_path = self.imported_from
             self.file_importer.save()
+
         super().save(*args, **kwargs)
 
     @cached_property
@@ -202,9 +204,12 @@ class AbstractBaseModelImportAttempt(TrackedModel, ImportStatusModel):
 
         if propagate_status and self.file_import_attempt:
             if (
-                self.STATUSES[self.file_import_attempt.status]
-                < self.STATUSES[self.status]
+                self.STATUSES[self.status]
+                > self.STATUSES[self.file_import_attempt.status]
             ):
+                # print(
+                #     f"Set FIA status from {self.file_import_attempt.status} to {self.status}"
+                # )
                 self.file_import_attempt.status = self.status
                 self.file_import_attempt.save()
         super().save(*args, **kwargs)

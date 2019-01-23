@@ -88,6 +88,7 @@ class BaseImportCommand(BaseCommand):
     def handle_rows(self, path, durable=False, overwrite=False, **options):
         FileImporter = apps.get_model("django_import_data.FileImporter")
         FileImportAttempt = apps.get_model("django_import_data.FileImportAttempt")
+        RowData = apps.get_model("django_import_data.RowData")
         # TODO: How to handle changes in path? That is, if a Batch file is moved
         # somewhere else we still need a way to force its association with the
         # existing Batch in the DB. Allow explicit Batch ID to be passed in?
@@ -133,7 +134,10 @@ class BaseImportCommand(BaseCommand):
         all_errors = []
 
         for ri, row in enumerate(tqdm(rows, desc=self.help, unit="rows")):
-            row_data = self.handle_row(row, file_import_attempt)
+            row_data = RowData.objects.create(
+                row_num=ri, data=row, file_import_attempt=file_import_attempt
+            )
+            self.handle_row(row_data, file_import_attempt)
             errors = {
                 import_attempt.imported_by: import_attempt.errors
                 for import_attempt in row_data.import_attempts.all()
@@ -172,8 +176,9 @@ class BaseImportCommand(BaseCommand):
         for row_errors in all_errors:
             for attribute, attribute_errors in row_errors.items():
                 error_summary.setdefault(attribute, {})
-                total_conversion_errors += len(attribute_errors["conversion_errors"])
-                for conversion_error in attribute_errors["conversion_errors"]:
+                conversion_errors = attribute_errors.get("conversion_errors", {})
+                total_conversion_errors += len(conversion_errors)
+                for conversion_error in conversion_errors:
                     error_summary[attribute].setdefault("conversion_errors", {})
                     error_summary[attribute]["conversion_errors"].setdefault("count", 0)
                     error_summary[attribute]["conversion_errors"]["count"] += len(
@@ -191,8 +196,9 @@ class BaseImportCommand(BaseCommand):
                             conversion_error["from_fields"]
                         )
 
-                total_form_errors += len(attribute_errors["form_errors"])
-                for form_error in attribute_errors["form_errors"]:
+                form_errors = attribute_errors.get("form_errors", {})
+                total_form_errors += len(form_errors)
+                for form_error in form_errors:
                     error_summary[attribute].setdefault("form_errors", {})
                     error_summary[attribute]["form_errors"].setdefault("count", 0)
                     error_summary[attribute]["form_errors"]["count"] += len(form_error)
