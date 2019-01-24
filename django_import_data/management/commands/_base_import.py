@@ -6,6 +6,7 @@ import random
 from tqdm import tqdm
 
 from django.core.management.base import BaseCommand
+
 from django.db import transaction
 from django.db.models import Count, Q, F
 from django.apps import apps
@@ -67,7 +68,6 @@ class BaseImportCommand(BaseCommand):
 
         return csv.DictReader(lines)
 
-    @transaction.atomic
     def handle_row(self, row):
         raise NotImplementedError("Must be implemented by child class")
 
@@ -161,6 +161,8 @@ class BaseImportCommand(BaseCommand):
         file_import_attempt.errors = errors
         file_import_attempt.save()
 
+        # raise ValueError("hmmm")
+
     def summary(self, file_import_attempt, all_errors):
         error_summary = {}
         total_form_errors = 0
@@ -237,5 +239,5 @@ class BaseImportCommand(BaseCommand):
     def handle(self, *args, **options):
         self.handle_rows(*args, **options)
         if options["dry_run"]:
-            transaction.set_rollback = True
+            transaction.set_rollback(True)
             tqdm.write("DRY RUN; rolling back changes")
