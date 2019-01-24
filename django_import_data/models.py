@@ -63,6 +63,11 @@ class AbstractBaseFileImporter(TrackedModel, ImportStatusModel):
     # TODO: Reconsider unique
     # TODO: Reconsider existence -- if cached_property used then this wouldn't be needed?
     last_imported_path = models.CharField(max_length=512, unique=True, blank=True)
+    importer_name = models.CharField(
+        max_length=128,
+        default=None,
+        help_text="The name of the Importer used for this attempt",
+    )
 
     class Meta:
         abstract = True
@@ -72,7 +77,7 @@ class AbstractBaseFileImporter(TrackedModel, ImportStatusModel):
 
     @property
     def most_recent_import(self):
-        return self.imports.order_by("created_on").last()
+        return self.file_import_attempts.order_by("created_on").last()
 
     @cached_property
     def name(self):
@@ -170,8 +175,7 @@ class AbstractBaseModelImportAttempt(TrackedModel, ImportStatusModel):
         # blank=True,
         help_text="Stores any 'summary' information that might need to be associated",
     )
-    imported_from = models.CharField(max_length=512)
-    imported_by = models.CharField(max_length=128)
+    imported_by = models.CharField(max_length=128, default=None)
     content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
     # IF GFK
     # object_id = models.PositiveIntegerField(null=True)
@@ -244,6 +248,10 @@ class AbstractBaseModelImportAttempt(TrackedModel, ImportStatusModel):
         """Set auditee to given object"""
         return setattr(self, self.content_type.model, instance)
 
+    @cached_property
+    def imported_from(self):
+        return self.file_import_attempt.imported_from
+
     # TODO: UNIt tests!
     def delete_imported_models(self):
         """Delete all models imported by this MIA"""
@@ -294,7 +302,7 @@ class FileImporter(AbstractBaseFileImporter):
 class FileImportAttempt(AbstractBaseFileImportAttempt):
     # TODO: Just importer?
     file_importer = models.ForeignKey(
-        FileImporter, related_name="import_attempts", on_delete=models.CASCADE
+        FileImporter, related_name="file_import_attempts", on_delete=models.CASCADE
     )
 
     class Meta:
@@ -317,7 +325,7 @@ class ModelImportAttempt(AbstractBaseModelImportAttempt):
     # NOTE: We override this here to give it a more sensible related_name
     row_data = models.ForeignKey(
         RowData,
-        related_name="import_attempts",
+        related_name="model_import_attempts",
         on_delete=models.CASCADE,
         help_text="Reference to the original data used to create this audit group",
     )
@@ -395,3 +403,10 @@ class AbstractBaseAuditedModel(models.Model):
             )
 
         super().save(*args, **kwargs)
+
+    @cached_property
+    def imported_from(self):
+        try:
+            return self.model_import_attempt.file_import_attempt.imported_from
+        except AttributeError:
+            return None

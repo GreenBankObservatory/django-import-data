@@ -93,12 +93,11 @@ class BaseImportCommand(BaseCommand):
         # somewhere else we still need a way to force its association with the
         # existing Batch in the DB. Allow explicit Batch ID to be passed in?
         # Some other unique ID?
-        if FileImporter.objects.filter(last_imported_path=path).exists():
-            file_importer = FileImporter.objects.get(last_imported_path=path)
+        current_command = self.__module__.split(".")[-1]
         file_importer, file_importer_created = FileImporter.objects.get_or_create(
-            last_imported_path=path
+            last_imported_path=path, importer_name=current_command
         )
-        previous_file_import_attempt = file_importer.import_attempts.order_by(
+        previous_file_import_attempt = file_importer.file_import_attempts.order_by(
             "created_on"
         ).last()
         if previous_file_import_attempt:
@@ -114,6 +113,7 @@ class BaseImportCommand(BaseCommand):
                 previous_file_import_attempt.delete_imported_models()
             )
             print(f"Deleted {num_deletions} models:\n{pformat(deletions)}")
+
         file_import_attempt = FileImportAttempt.objects.create(
             file_importer=file_importer, imported_from=path
         )
@@ -140,7 +140,7 @@ class BaseImportCommand(BaseCommand):
             self.handle_row(row_data, file_import_attempt)
             errors = {
                 import_attempt.imported_by: import_attempt.errors
-                for import_attempt in row_data.import_attempts.all()
+                for import_attempt in row_data.model_import_attempts.all()
                 if import_attempt.errors
             }
             # TODO: Make status an int in the DB so we can do calcs easier
@@ -160,6 +160,7 @@ class BaseImportCommand(BaseCommand):
         file_import_attempt.creations = creations
         file_import_attempt.errors = errors
         file_import_attempt.save()
+        return file_import_attempt
 
         # raise ValueError("hmmm")
 
@@ -169,10 +170,10 @@ class BaseImportCommand(BaseCommand):
         total_conversion_errors = 0
         creations = (
             file_import_attempt.rows.filter(
-                import_attempts__status__startswith="created"
+                model_import_attempts__status__startswith="created"
             )
-            .values(model=F("import_attempts__content_type__model"))
-            .annotate(creation_count=Count("import_attempts__status"))
+            .values(model=F("model_import_attempts__content_type__model"))
+            .annotate(creation_count=Count("model_import_attempts__status"))
         )
 
         for row_errors in all_errors:
@@ -237,7 +238,12 @@ class BaseImportCommand(BaseCommand):
 
     @transaction.atomic
     def handle(self, *args, **options):
-        self.handle_rows(*args, **options)
+        file_import_attempt = self.handle_rows(*args, **options)
+
+        # if not options["durable"] and file_import_attempt.status == "rejected":
+        #     raise Value
         if options["dry_run"]:
             transaction.set_rollback(True)
             tqdm.write("DRY RUN; rolling back changes")
+
+        return file_import_attempt
