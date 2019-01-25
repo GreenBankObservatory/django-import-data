@@ -62,11 +62,11 @@ class AbstractBaseFileImporter(TrackedModel, ImportStatusModel):
 
     # TODO: Reconsider unique
     # TODO: Reconsider existence -- if cached_property used then this wouldn't be needed?
-    last_imported_path = models.CharField(max_length=512, unique=True, blank=True)
+    last_imported_path = models.CharField(
+        max_length=512, unique=True, help_text="Path to imported file"
+    )
     importer_name = models.CharField(
-        max_length=128,
-        default=None,
-        help_text="The name of the Importer used for this attempt",
+        max_length=128, default=None, help_text="The name of the Importer to use"
     )
 
     class Meta:

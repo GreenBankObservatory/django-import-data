@@ -98,3 +98,9 @@ class FileImportAttemptListView(ListView):
 class FileImportAttemptDetailView(DetailView):
     model = FileImportAttempt
     template_name = "fileimportattempt_detail.html"
+
+
+class FileImporterCreateView(CreateView):
+    model = FileImporter
+    fields = ("last_imported_path", "importer_name")
+    template_name = "fileimporter_form.html"
