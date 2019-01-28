@@ -176,7 +176,7 @@ class FieldMap:
                 try:
                     converted = converter(**ret)
                 except TypeError as error:
-                    raise ValueError("Unmapped headers!") from error
+                    raise  # ValueError("Unmapped headers!") from error
                 if not isinstance(converted, dict):
                     return {to_field: converted}
                 return converted
@@ -185,13 +185,13 @@ class FieldMap:
             try:
                 return {to_field: converter(from_field_value)}
             except TypeError as error:
-                raise ValueError("Unmapped headers!") from error
+                raise  # ValueError("Unmapped headers!") from error
 
         # For all other cases, expect the converter to be smart enough
         try:
             return converter(**ret)
         except TypeError as error:
-            raise ValueError("Unmapped headers!") from error
+            raise  # ValueError("Unmapped headers!") from error
 
 
 class OneToOneFieldMap(FieldMap):
@@ -251,7 +251,7 @@ class OneToOneFieldMap(FieldMap):
         try:
             converted = converter(from_field_value)
         except TypeError as error:
-            raise ValueError("Unmapped headers!") from error
+            raise  # ValueError("Unmapped headers!") from error
         if not isinstance(converted, dict):
             return {to_field: converted}
         return converted
@@ -278,7 +278,9 @@ class ManyToOneFieldMap(FieldMap):
         try:
             converted = converter(**ret)
         except TypeError as error:
-            raise ValueError("Unmapped headers!") from error
+            if "required positional" in str(error):
+                raise ValueError(f"Unmapped headers! {error}") from error
+
         if not isinstance(converted, dict):
             return {to_field: converted}
         return converted
