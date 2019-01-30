@@ -11,6 +11,7 @@ from django.core.serializers.json import DjangoJSONEncoder
 from django.db import models
 from django.urls import reverse
 from django.utils.functional import cached_property
+from django.core.exceptions import FieldError
 
 from .mixins import ImportStatusModel, TrackedModel
 from .utils import DjangoErrorJSONEncoder
@@ -131,16 +132,21 @@ class AbstractBaseFileImportAttempt(TrackedModel, ImportStatusModel):
         for ct in ContentType.objects.filter(
             id__in=self.model_import_attempts.values("content_type")
         ):
-            # ...get a queryset of all model instances that were imported...
-            to_delete = ct.model_class().objects.filter(
-                model_import_attempt__file_import_attempt=self
-            )
-            # ...and delete them:
-            num_deletions_for_model_class, deletions_for_model_class = (
-                to_delete.delete()
-            )
-            num_deletions += num_deletions_for_model_class
-            deletions += deletions_for_model_class
+            try:
+                # ...get a queryset of all model instances that were imported...
+                to_delete = ct.model_class().objects.filter(
+                    model_import_attempt__file_import_attempt=self
+                )
+            except FieldError:
+                # TODO: Warning?
+                pass
+            else:
+                # ...and delete them:
+                num_deletions_for_model_class, deletions_for_model_class = (
+                    to_delete.delete()
+                )
+                num_deletions += num_deletions_for_model_class
+                deletions += deletions_for_model_class
 
         return (num_deletions, deletions)
 
