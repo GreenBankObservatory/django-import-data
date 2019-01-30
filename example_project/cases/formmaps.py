@@ -25,11 +25,9 @@ class PersonFormMap(FormMap):
     def convert_first_name_middle_name_last_name(
         self, first_name, middle_name, last_name
     ):
-        print("convert_name!")
         return " ".join([first_name, middle_name, last_name])
 
     def convert_address(self, address):
-        print("convert_address!")
         return dict(
             zip(
                 ["street", "city", "state", "zip"],

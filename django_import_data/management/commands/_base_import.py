@@ -334,7 +334,6 @@ class BaseImportCommand(BaseCommand):
     def handle(self, *args, **options):
         files_to_process = self.determine_files_to_process(options["paths"])
 
-        print(f"PROGRESS_TYPE: {self.PROGRESS_TYPE}")
         if self.PROGRESS_TYPE == self.PROGRESS_TYPES.FILE:
             files_to_process = self.determine_records_to_process(
                 files_to_process, limit=options.get("limit", None)
