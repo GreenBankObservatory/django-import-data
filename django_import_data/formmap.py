@@ -121,7 +121,9 @@ class FormMap:
         return (rendered_form, conversion_errors)
 
     # TODO: remove file_import_attempt; use row_data.file_import_attempt
-    def save_with_audit(self, row_data, form=None, file_import_attempt=None, **kwargs):
+    def save_with_audit(
+        self, row_data, data=None, form=None, file_import_attempt=None, **kwargs
+    ):
         from django.contrib.contenttypes.models import ContentType
         from django_import_data.models import ModelImportAttempt
         from .models import RowData
@@ -129,12 +131,16 @@ class FormMap:
         if not isinstance(row_data, RowData):
             raise ValueError("aw snap")
 
+        # If no data has been explicitly given, use the whole row's data
+        if data is None:
+            data = row_data.data
+
         if form is not None:
             conversion_errors = {}
         else:
             # Thus, if it is _not_ a ModelForm instance, we need to render it
             # ourselves
-            form, conversion_errors = self.render(row_data.data, **kwargs)
+            form, conversion_errors = self.render(data, **kwargs)
         if form is None:
             return (None, None)
 
@@ -145,7 +151,6 @@ class FormMap:
             all_errors["conversion_errors"] = conversion_errors
         if useful_form_errors:
             all_errors["form_errors"] = useful_form_errors
-
         if form.is_valid():
             model_import_attempt = ModelImportAttempt.objects.create_for_model(
                 importee_field_data=form.data,
