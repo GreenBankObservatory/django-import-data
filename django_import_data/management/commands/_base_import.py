@@ -18,7 +18,7 @@ from tqdm import tqdm
 
 class BaseImportCommand(BaseCommand):
     # output will automatically be wrapped with BEGIN; and COMMIT;
-    output_transaction = True
+    # output_transaction = True
     # prints a warning if the set of migrations on disk don’t match the migrations in the database
     requires_migrations_checks = True
 
@@ -61,16 +61,32 @@ class BaseImportCommand(BaseCommand):
             help="Specify a random percentage [0.0 - 1.0] of records that should be processed",
         )
         parser.add_argument(
-            "--start_index",
+            "--start-index",
             type=int,
             default=cls.START_INDEX_DEFAULT,
             help="Used in conjunction with end_index to determine the slice of records to be processed",
         )
         parser.add_argument(
-            "--end_index",
+            "--end-index",
             type=int,
             default=cls.END_INDEX_DEFAULT,
             help="Used in conjunction with start_index to determine the slice of records to be processed",
+        )
+        parser.add_argument(
+            "--no-transaction",
+            action="store_true",
+            help="If given, no transaction will be used. WARNING: You should ensure "
+            "that transactions are being managed elsewhere in order to prevent data loss!",
+        )
+        parser.add_argument(
+            "-p",
+            "--pattern",
+            # TODO: Fix this; should be elsewhere
+            default=r".*\.(xls.?|csv)$",
+            help=(
+                "Regular expression used to identify Excel application files. "
+                "Used only when a directory is given in path"
+            ),
         )
         if cls.PROGRESS_TYPE == cls.PROGRESS_TYPES.ROW:
             parser.add_argument(
@@ -80,6 +96,9 @@ class BaseImportCommand(BaseCommand):
                 type=int,
                 help="List of specific rows to process (by index)",
             )
+
+        # TODO: Disallow no_transaction and dry_run being given
+        # TODO: Enforce range on limit
         return parser
 
     def add_arguments(self, parser):
@@ -141,6 +160,7 @@ class BaseImportCommand(BaseCommand):
         if rows_to_process:
             return [records[index] for index in rows_to_process]
 
+        tqdm.write(f"Slice: ({start_index}, {end_index})")
         sliced = records[start_index:end_index]
         num_sliced = len(sliced)
 
@@ -330,19 +350,33 @@ class BaseImportCommand(BaseCommand):
 
         return [dict(creation) for creation in creations], error_summary
 
-    @transaction.atomic
-    def handle(self, *args, **options):
-        files_to_process = self.determine_files_to_process(options["paths"])
-
-        if self.PROGRESS_TYPE == self.PROGRESS_TYPES.FILE:
-            files_to_process = self.determine_records_to_process(
-                files_to_process, limit=options.get("limit", None)
-            )
-            files_to_process = tqdm(files_to_process, desc=self.help, unit="files")
+    def handle_files(self, files_to_process, **options):
         for path in files_to_process:
             tqdm.write(f"Processing {path}")
             self.handle_records(path, **options)
 
-        if options["dry_run"]:
-            transaction.set_rollback(True)
-            tqdm.write("DRY RUN; rolling back changes")
+    def handle(self, *args, **options):
+        files_to_process = self.determine_files_to_process(
+            options["paths"], pattern=options["pattern"]
+        )
+
+        if self.PROGRESS_TYPE == self.PROGRESS_TYPES.FILE:
+            files_to_process = self.determine_records_to_process(
+                files_to_process,
+                **{
+                    option: value
+                    for option, value in options.items()
+                    if option in ["limit", "start_index", "end_index"]
+                },
+            )
+            files_to_process = tqdm(files_to_process, desc=self.help, unit="files")
+
+        if options["no_transaction"]:
+            self.handle_files(files_to_process, **options)
+        else:
+            with transaction.atomic():
+                self.handle_files(files_to_process, **options)
+
+                if options["dry_run"]:
+                    transaction.set_rollback(True)
+                    tqdm.write("DRY RUN; rolling back changes")
