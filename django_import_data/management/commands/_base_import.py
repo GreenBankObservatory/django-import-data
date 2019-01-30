@@ -1,15 +1,19 @@
-import csv
-import json
+"""Provides BaseImportCommand: an abstract class for creating Importers"""
+
 from pprint import pformat
+import csv
+from enum import Enum
+import json
+import os
 import random
+import re
+
+from django.apps import apps
+from django.core.management.base import BaseCommand
+from django.db import transaction
+from django.db.models import Count, F
 
 from tqdm import tqdm
-
-from django.core.management.base import BaseCommand
-
-from django.db import transaction
-from django.db.models import Count, Q, F
-from django.apps import apps
 
 
 class BaseImportCommand(BaseCommand):
@@ -18,8 +22,17 @@ class BaseImportCommand(BaseCommand):
     # prints a warning if the set of migrations on disk don’t match the migrations in the database
     requires_migrations_checks = True
 
-    @staticmethod
-    def add_core_arguments(parser):
+    class PROGRESS_TYPES(Enum):
+        ROW = "ROW"
+        FILE = "FILE"
+
+    PROGRESS_TYPE = None
+
+    START_INDEX_DEFAULT = 0
+    END_INDEX_DEFAULT = None
+
+    @classmethod
+    def add_core_arguments(cls, parser):
         """Add the set of args that are common across all import commands"""
         parser.add_argument(
             "-d",
@@ -31,61 +44,130 @@ class BaseImportCommand(BaseCommand):
             ),
         )
         parser.add_argument(
-            "-D", "--durable", action="store_true", help="Continue past row errors"
+            "-D", "--durable", action="store_true", help="Continue past record errors"
         )
         parser.add_argument(
             "--overwrite",
             action="store_true",
             help=(
-                # TODO: NEEDS WORK
-                "Overwrite previous FIA"
+                "If a previoius File Import Attempt is detected for one or more "
+                "of the given paths, delete and re-create it (overwrite it)"
             ),
         )
         parser.add_argument(
             "-l",
             "--limit",
             type=float,
-            help="Specify a random percentage [0.0 - 1.0] of rows that should be processed",
+            help="Specify a random percentage [0.0 - 1.0] of records that should be processed",
         )
         parser.add_argument(
-            "-r",
-            "--rows",
-            nargs="+",
+            "--start_index",
             type=int,
-            help="List of specific rows to process (by index)",
+            default=cls.START_INDEX_DEFAULT,
+            help="Used in conjunction with end_index to determine the slice of records to be processed",
         )
+        parser.add_argument(
+            "--end_index",
+            type=int,
+            default=cls.END_INDEX_DEFAULT,
+            help="Used in conjunction with start_index to determine the slice of records to be processed",
+        )
+        if cls.PROGRESS_TYPE == cls.PROGRESS_TYPES.ROW:
+            parser.add_argument(
+                "-r",
+                "--rows",
+                nargs="+",
+                type=int,
+                help="List of specific rows to process (by index)",
+            )
         return parser
 
     def add_arguments(self, parser):
-        # TODO: Allow multiple paths for all importers
-        parser.add_argument("path")
+        parser.add_argument("paths", nargs="+")
         self.add_core_arguments(parser)
 
-    def load_rows(self, path):
+    @staticmethod
+    def determine_files_to_process(paths, pattern=".*"):
+        """Find all files in given paths that match given pattern; sort and return"""
+
+        files = []
+        for path in paths:
+            if os.path.isfile(path):
+                files.append(path)
+            elif os.path.isdir(path):
+                files.extend(
+                    [
+                        os.path.join(path, file)
+                        for file in os.listdir(path)
+                        if re.search(pattern, file)
+                    ]
+                )
+            else:
+                raise ValueError(f"Given path {path!r} is not a directory or file!")
+
+        return sorted(files)
+
+    @staticmethod
+    def load_rows(path):
         """Load rows from a CSV file"""
         with open(path, newline="", encoding="latin1") as file:
             lines = file.readlines()
 
         return csv.DictReader(lines)
 
-    def handle_row(self, row):
+    def handle_record(self, record, file_import_attempt):
+        """Provides logic for importing individual records"""
+
         raise NotImplementedError("Must be implemented by child class")
 
-    def get_random_rows(self, rows, limit):
-        if limit >= 1:
-            return rows
-        num_rows = len(rows)
-        goal = int(num_rows * limit)
-        if goal < 1:
-            goal = 1
+    def determine_records_to_process(
+        self,
+        records,
+        rows_to_process=None,
+        limit=None,
+        start_index=START_INDEX_DEFAULT,
+        end_index=END_INDEX_DEFAULT,
+    ):
+        """Return subset of given records
 
-        random_indices = set()
-        while len(random_indices) < goal:
-            random_indices.add(random.randint(0, num_rows - 1))
+        First, a slice is taken using `start_index` and `end_index`.
+        Then, if limit is given, if is used to randomly select a further subset
+        of records
+        """
 
-        return [rows[index] for index in random_indices]
+        if rows_to_process and limit:
+            raise ValueError("Cannot give both rows_to_process and limit!")
 
-    def handle_rows(self, path, durable=False, overwrite=False, **options):
+        if rows_to_process:
+            return [records[index] for index in rows_to_process]
+
+        sliced = records[start_index:end_index]
+        num_sliced = len(sliced)
+
+        if limit is not None:
+            if limit >= 1:
+                return sliced
+
+            # Determine how many records we want to return
+            goal = int(num_sliced * limit)
+            # Ensure that there is always at least one record returned
+            if goal < 1:
+                goal = 1
+
+            random_indices = set()
+            # Generate unique random indices until we have reached the goal
+            while len(random_indices) < goal:
+                random_indices.add(random.randint(0, num_sliced - 1))
+
+            sliced = [sliced[index] for index in random_indices]
+
+        return sliced
+
+    def handle_records(self, path, durable=False, overwrite=False, **options):
+        rows = list(self.load_rows(path))
+        if not rows:
+            tqdm.write(f"No rows found in {path}; skipping")
+            return None
         FileImporter = apps.get_model("django_import_data.FileImporter")
         FileImportAttempt = apps.get_model("django_import_data.FileImportAttempt")
         RowData = apps.get_model("django_import_data.RowData")
@@ -112,32 +194,44 @@ class BaseImportCommand(BaseCommand):
             num_deletions, deletions = (
                 previous_file_import_attempt.delete_imported_models()
             )
-            print(f"Deleted {num_deletions} models:\n{pformat(deletions)}")
+            tqdm.write(f"Deleted {num_deletions} models:\n{pformat(deletions)}")
 
         file_import_attempt = FileImportAttempt.objects.create(
             file_importer=file_importer, imported_from=path
         )
-        rows = list(self.load_rows(path))
-        rows_to_process = options.get("rows", None)
-        if rows_to_process:
-            rows = [rows[ri] for ri in rows_to_process]
-            tqdm.write(f"Processing only rows {rows_to_process}")
 
-        limit = options.get("limit", None)
-        if limit is not None:
-            rows = self.get_random_rows(rows, limit)
-            tqdm.write(
-                f"Processing {len(rows)} rows ({limit * 100:.2f}% "
-                "of rows, randomly selected)"
+        if self.PROGRESS_TYPE == self.PROGRESS_TYPES.ROW:
+            rows_to_process = options.get("rows", None)
+            limit = options.get("limit", None)
+            start_index = options.get("start_index", None)
+            end_index = options.get("end_index", None)
+            rows = self.determine_records_to_process(
+                rows,
+                rows_to_process=rows_to_process,
+                limit=limit,
+                start_index=start_index,
+                end_index=end_index,
             )
+
+            if rows_to_process:
+                tqdm.write(f"Processing only rows {rows_to_process}")
+
+            if limit is not None:
+                # if start_index != self.START_INDEX_DEFAULT or end_index != self.END_INDEX_DEFAULT:
+                #     slice_str =
+                tqdm.write(
+                    f"Processing {len(rows)} rows ({limit * 100:.2f}% "
+                    "of rows, randomly selected)"
+                )
+            rows = tqdm(rows, desc=self.help, unit="rows")
 
         all_errors = []
 
-        for ri, row in enumerate(tqdm(rows, desc=self.help, unit="rows")):
+        for ri, row in enumerate(rows):
             row_data = RowData.objects.create(
                 row_num=ri, data=row, file_import_attempt=file_import_attempt
             )
-            self.handle_row(row_data, file_import_attempt)
+            self.handle_record(row_data, file_import_attempt)
             errors = {
                 import_attempt.imported_by: import_attempt.errors
                 for import_attempt in row_data.model_import_attempts.all()
@@ -158,7 +252,7 @@ class BaseImportCommand(BaseCommand):
 
         creations, errors = self.summary(file_import_attempt, all_errors)
         file_import_attempt.creations = creations
-        file_import_attempt.errors = errors
+        file_import_attempt.errors.update(errors)
         file_import_attempt.save()
         return file_import_attempt
 
@@ -217,7 +311,7 @@ class BaseImportCommand(BaseCommand):
         tqdm.write("=" * 80)
         tqdm.write("Model Import Summary:")
         for creation in creations:
-            print("Created {creation_count} {model} objects".format(**creation))
+            tqdm.write("Created {creation_count} {model} objects".format(**creation))
         tqdm.write("-" * 80)
         tqdm.write("Error Summary:")
         tqdm.write(pformat(error_summary))
@@ -238,12 +332,18 @@ class BaseImportCommand(BaseCommand):
 
     @transaction.atomic
     def handle(self, *args, **options):
-        file_import_attempt = self.handle_rows(*args, **options)
+        files_to_process = self.determine_files_to_process(options["paths"])
 
-        # if not options["durable"] and file_import_attempt.status == "rejected":
-        #     raise Value
+        print(f"PROGRESS_TYPE: {self.PROGRESS_TYPE}")
+        if self.PROGRESS_TYPE == self.PROGRESS_TYPES.FILE:
+            files_to_process = self.determine_records_to_process(
+                files_to_process, limit=options.get("limit", None)
+            )
+            files_to_process = tqdm(files_to_process, desc=self.help, unit="files")
+        for path in files_to_process:
+            tqdm.write(f"Processing {path}")
+            self.handle_records(path, **options)
+
         if options["dry_run"]:
             transaction.set_rollback(True)
             tqdm.write("DRY RUN; rolling back changes")
-
-        return file_import_attempt
