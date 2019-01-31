@@ -3,10 +3,14 @@
 
 {% block content %}
 
-<h1>{{ rowdata }}</h1>
+<h1>Row Data</h1>
+<p>
+    Row {{ rowdata.row_num }} from <a href="file://{{ rowdata.file_import_attempt.imported_from }}">{{ rowdata.file_import_attempt.name }}</a>
+</p>
+
 
 {{ rowdata.data | json | safe }}
 
-{% include "list_base.html" with object_list=rowdata.audit_groups.all %}
+{% include "list_base.html" with object_list=rowdata.model_import_attempts.all %}
 
 {% endblock %}
