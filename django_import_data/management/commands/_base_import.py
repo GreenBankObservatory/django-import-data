@@ -31,6 +31,9 @@ class BaseImportCommand(BaseCommand):
     START_INDEX_DEFAULT = 0
     END_INDEX_DEFAULT = None
 
+    # TODO: This is somewhat stupid; think of a better way
+    FORM_MAPS = NotImplemented
+
     @classmethod
     def add_core_arguments(cls, parser):
         """Add the set of args that are common across all import commands"""
@@ -81,8 +84,6 @@ class BaseImportCommand(BaseCommand):
         parser.add_argument(
             "-p",
             "--pattern",
-            # TODO: Fix this; should be elsewhere
-            default=r".*\.(xls.?|csv)$",
             help=(
                 "Regular expression used to identify Excel application files. "
                 "Used only when a directory is given in path"
@@ -106,7 +107,7 @@ class BaseImportCommand(BaseCommand):
         self.add_core_arguments(parser)
 
     @staticmethod
-    def determine_files_to_process(paths, pattern=".*"):
+    def determine_files_to_process(paths, pattern=None):
         """Find all files in given paths that match given pattern; sort and return"""
 
         files = []
@@ -118,7 +119,7 @@ class BaseImportCommand(BaseCommand):
                     [
                         os.path.join(path, file)
                         for file in os.listdir(path)
-                        if re.search(pattern, file)
+                        if not pattern or re.search(pattern, file)
                     ]
                 )
             else:
@@ -183,13 +184,18 @@ class BaseImportCommand(BaseCommand):
 
         return sliced
 
-    def file_level_checks(self, rows):
+    def get_known_headers(self,):
+        known_headers = set()
+        for form_map in self.FORM_MAPS:
+            known_headers.update(form_map.get_known_from_fields())
+        return sorted(known_headers)
+
+    def get_unmapped_headers(self, headers, known_headers):
+        return [header for header in headers if header not in known_headers]
+
+    def header_checks(self, headers):
+        info = {}
         errors = {}
-        if not rows:
-            return errors
-
-        headers = rows[0].keys()
-
         # TODO: Resurrect
         # If multiple headers map to the same field, report this as an error
         # duplicate_headers = self.get_duplicate_headers(headers)
@@ -197,10 +203,11 @@ class BaseImportCommand(BaseCommand):
         #     self.report.set_duplicate_headers(duplicate_headers)
 
         # If some headers don't map to anything, report this as an error
-        known_headers = set()
-        for form_map in self.FORM_MAPS:
-            known_headers.update(form_map.get_known_from_fields())
-        unmapped_headers = [header for header in headers if header not in known_headers]
+
+        known_headers = self.get_known_headers()
+        info["known_headers"] = known_headers
+        unmapped_headers = self.get_unmapped_headers(headers, known_headers)
+
         if unmapped_headers:
             errors["unmapped_headers"] = unmapped_headers
 
@@ -209,13 +216,28 @@ class BaseImportCommand(BaseCommand):
         if unmapped_header_ratio > getattr(self, "THRESHOLD", 0.7):
             errors[
                 "too_many_unmapped_headers"
-            ] = f"{unmapped_header_ratio * 100:.2f}% of headers are not mapped; batch rejected"
-            if not self.durable:
-                raise ValueError(
-                    f"{unmapped_header_ratio * 100:.2f}% of headers are not mapped; file rejected"
-                )
+            ] = f"{unmapped_header_ratio * 100:.2f}% of headers are not mapped"
+            # if not self.durable:
+            #     raise ValueError(
+            #         f"{unmapped_header_ratio * 100:.2f}% of headers are not mapped; file rejected"
+            #     )
+        return info, errors
 
-        return errors
+    def file_level_checks(self, rows):
+        info = {}
+        errors = {}
+        if not rows:
+            return info, errors
+
+        headers = rows[0].keys()
+        header_check_info, header_check_errors = self.header_checks(headers)
+
+        if header_check_info:
+            info["header_checks"] = header_check_info
+        if header_check_errors:
+            errors["header_checks"] = header_check_errors
+
+        return info, errors
 
     def handle_file(self, path, durable=False, overwrite=False, **options):
         rows = list(self.load_rows(path))
@@ -250,9 +272,12 @@ class BaseImportCommand(BaseCommand):
             )
             tqdm.write(f"Deleted {num_deletions} models:\n{pformat(deletions)}")
 
-        file_level_errors = self.file_level_checks(rows)
+        file_level_info, file_level_errors = self.file_level_checks(rows)
         file_import_attempt = FileImportAttempt.objects.create(
-            file_importer=file_importer, imported_from=path, errors=file_level_errors
+            file_importer=file_importer,
+            imported_from=path,
+            info=file_level_info,
+            errors=file_level_errors,
         )
 
         if self.PROGRESS_TYPE == self.PROGRESS_TYPES.ROW:
@@ -387,9 +412,14 @@ class BaseImportCommand(BaseCommand):
         return [dict(creation) for creation in creations], error_summary
 
     def handle_files(self, files_to_process, **options):
+        file_import_attempts = []
         for path in files_to_process:
             tqdm.write(f"Processing {path}")
-            self.handle_file(path, **options)
+            file_import_attempts.append(self.handle_file(path, **options))
+        return file_import_attempts
+
+    def post_import_checks(self, file_import_attempts):
+        pass
 
     def handle(self, *args, **options):
         files_to_process = self.determine_files_to_process(
@@ -408,11 +438,13 @@ class BaseImportCommand(BaseCommand):
             files_to_process = tqdm(files_to_process, desc=self.help, unit="files")
 
         if options["no_transaction"]:
-            self.handle_files(files_to_process, **options)
+            file_import_attempts = self.handle_files(files_to_process, **options)
         else:
             with transaction.atomic():
-                self.handle_files(files_to_process, **options)
+                file_import_attempts = self.handle_files(files_to_process, **options)
 
                 if options["dry_run"]:
                     transaction.set_rollback(True)
                     tqdm.write("DRY RUN; rolling back changes")
+
+        self.post_import_checks(file_import_attempts)

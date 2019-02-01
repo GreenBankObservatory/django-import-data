@@ -98,6 +98,9 @@ class AbstractBaseFileImportAttempt(TrackedModel, ImportStatusModel):
         help_text="Path to file that this was imported from",
     )
     creations = JSONField(encoder=DjangoErrorJSONEncoder, default=dict, null=True)
+    info = JSONField(
+        default=dict, help_text="Stores any file-level info about the import"
+    )
     errors = JSONField(
         encoder=DjangoErrorJSONEncoder,
         default=dict,
