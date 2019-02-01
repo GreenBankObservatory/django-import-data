@@ -7,11 +7,12 @@ from pprint import pformat
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.postgres.fields import JSONField
+from django.core.exceptions import FieldError
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import models
+from django.db import transaction
 from django.urls import reverse
 from django.utils.functional import cached_property
-from django.core.exceptions import FieldError
 
 from .mixins import ImportStatusModel, TrackedModel
 from .utils import DjangoErrorJSONEncoder
@@ -111,6 +112,8 @@ class AbstractBaseFileImportAttempt(TrackedModel, ImportStatusModel):
         return f"{self.name}: {self.get_status_display()}"
 
     def save(self, *args, propagate_status=True, **kwargs):
+        if self.status == "created_clean" and self.errors:
+            self.status = "created_dirty"
         if propagate_status and self.file_importer:
             self.file_importer.status = self.status
             self.file_importer.last_imported_path = self.imported_from
@@ -123,6 +126,7 @@ class AbstractBaseFileImportAttempt(TrackedModel, ImportStatusModel):
         return os.path.basename(self.imported_from)
 
     # TODO: Unit tests!
+    @transaction.atomic
     def delete_imported_models(self):
         """Delete all models imported by this FIA"""
 
@@ -259,6 +263,7 @@ class AbstractBaseModelImportAttempt(TrackedModel, ImportStatusModel):
         return self.file_import_attempt.imported_from
 
     # TODO: UNIt tests!
+    @transaction.atomic
     def delete_imported_models(self):
         """Delete all models imported by this MIA"""
 
@@ -274,7 +279,6 @@ class AbstractBaseModelImportAttempt(TrackedModel, ImportStatusModel):
             )
             num_deletions += num_deletions_for_model_class
             deletions += deletions_for_model_class
-
         return (num_deletions, deletions)
 
 

@@ -183,7 +183,41 @@ class BaseImportCommand(BaseCommand):
 
         return sliced
 
-    def handle_records(self, path, durable=False, overwrite=False, **options):
+    def file_level_checks(self, rows):
+        errors = {}
+        if not rows:
+            return errors
+
+        headers = rows[0].keys()
+
+        # TODO: Resurrect
+        # If multiple headers map to the same field, report this as an error
+        # duplicate_headers = self.get_duplicate_headers(headers)
+        # if duplicate_headers:
+        #     self.report.set_duplicate_headers(duplicate_headers)
+
+        # If some headers don't map to anything, report this as an error
+        known_headers = set()
+        for form_map in self.FORM_MAPS:
+            known_headers.update(form_map.get_known_from_fields())
+        unmapped_headers = [header for header in headers if header not in known_headers]
+        if unmapped_headers:
+            errors["unmapped_headers"] = unmapped_headers
+
+        unmapped_header_ratio = len(unmapped_headers) / len(headers)
+        # TODO: Store default somewhere else
+        if unmapped_header_ratio > getattr(self, "THRESHOLD", 0.7):
+            errors[
+                "too_many_unmapped_headers"
+            ] = f"{unmapped_header_ratio * 100:.2f}% of headers are not mapped; batch rejected"
+            if not self.durable:
+                raise ValueError(
+                    f"{unmapped_header_ratio * 100:.2f}% of headers are not mapped; file rejected"
+                )
+
+        return errors
+
+    def handle_file(self, path, durable=False, overwrite=False, **options):
         rows = list(self.load_rows(path))
         if not rows:
             tqdm.write(f"No rows found in {path}; skipping")
@@ -216,8 +250,9 @@ class BaseImportCommand(BaseCommand):
             )
             tqdm.write(f"Deleted {num_deletions} models:\n{pformat(deletions)}")
 
+        file_level_errors = self.file_level_checks(rows)
         file_import_attempt = FileImportAttempt.objects.create(
-            file_importer=file_importer, imported_from=path
+            file_importer=file_importer, imported_from=path, errors=file_level_errors
         )
 
         if self.PROGRESS_TYPE == self.PROGRESS_TYPES.ROW:
@@ -247,6 +282,7 @@ class BaseImportCommand(BaseCommand):
 
         all_errors = []
 
+        # TODO: Excel logic of adding a column with original row needs to be here, then removed there!
         for ri, row in enumerate(rows):
             row_data = RowData.objects.create(
                 row_num=ri, data=row, file_import_attempt=file_import_attempt
@@ -353,7 +389,7 @@ class BaseImportCommand(BaseCommand):
     def handle_files(self, files_to_process, **options):
         for path in files_to_process:
             tqdm.write(f"Processing {path}")
-            self.handle_records(path, **options)
+            self.handle_file(path, **options)
 
     def handle(self, *args, **options):
         files_to_process = self.determine_files_to_process(
