@@ -85,6 +85,16 @@ class AbstractBaseFileImporter(TrackedModel, ImportStatusModel):
     def name(self):
         return os.path.basename(self.last_imported_path)
 
+    @property
+    def acknowledged(self):
+        """Return True if all FIAs have been acknowledged; otherwise False"""
+
+        return not self.file_import_attempts.filter(acknowledged=False).exists()
+
+    @acknowledged.setter
+    def acknowledged(self, value):
+        self.file_import_attempts.update(acknowledged=value)
+
 
 class AbstractBaseFileImportAttempt(TrackedModel, ImportStatusModel):
     """Represents an individual attempt at an import of a "batch" of Importers"""
@@ -99,7 +109,7 @@ class AbstractBaseFileImportAttempt(TrackedModel, ImportStatusModel):
     )
     creations = JSONField(encoder=DjangoErrorJSONEncoder, default=dict, null=True)
     info = JSONField(
-        default=dict, help_text="Stores any file-level info about the import"
+        default=dict, null=True, help_text="Stores any file-level info about the import"
     )
     errors = JSONField(
         encoder=DjangoErrorJSONEncoder,
@@ -107,6 +117,7 @@ class AbstractBaseFileImportAttempt(TrackedModel, ImportStatusModel):
         null=True,
         help_text="Stores any file-level errors encountered during import",
     )
+    acknowledged = models.BooleanField(default=False)
 
     class Meta:
         abstract = True
@@ -190,9 +201,7 @@ class AbstractBaseModelImportAttempt(TrackedModel, ImportStatusModel):
     )
     imported_by = models.CharField(max_length=128, default=None)
     content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
-    # IF GFK
-    # object_id = models.PositiveIntegerField(null=True)
-    # importee = GenericForeignKey()
+    acknowledged = models.BooleanField(default=False)
 
     file_import_attempt = models.ForeignKey(
         "django_import_data.FileImportAttempt",
