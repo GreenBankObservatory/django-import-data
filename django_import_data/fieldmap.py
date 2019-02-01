@@ -104,8 +104,12 @@ class FieldMap:
         inverted = {}
         for field, aliases in fields_to_aliases.items():
             if aliases is not None:
-                for alias in aliases:
+                if isinstance(aliases, str):
+                    alias = aliases
                     inverted[alias] = field
+                else:
+                    for alias in aliases:
+                        inverted[alias] = field
         return inverted
 
     def __repr__(self):
@@ -280,6 +284,8 @@ class ManyToOneFieldMap(FieldMap):
         except TypeError as error:
             if "required positional" in str(error):
                 raise ValueError(f"Unmapped headers! {error}") from error
+            else:
+                raise
 
         if not isinstance(converted, dict):
             return {to_field: converted}

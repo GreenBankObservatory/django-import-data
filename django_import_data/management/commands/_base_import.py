@@ -240,7 +240,13 @@ class BaseImportCommand(BaseCommand):
         return info, errors
 
     def handle_file(self, path, durable=False, overwrite=False, **options):
-        rows = list(self.load_rows(path))
+        try:
+            rows = list(self.load_rows(path))
+        except ValueError as error:
+            if durable:
+                tqdm.write(str(error))
+            else:
+                raise ValueError("Error loading rows!") from error
         if not rows:
             tqdm.write(f"No rows found in {path}; skipping")
             return None
