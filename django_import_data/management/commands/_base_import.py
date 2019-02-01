@@ -247,6 +247,7 @@ class BaseImportCommand(BaseCommand):
                 tqdm.write(str(error))
             else:
                 raise ValueError("Error loading rows!") from error
+            rows = []
         if not rows:
             tqdm.write(f"No rows found in {path}; skipping")
             return None
