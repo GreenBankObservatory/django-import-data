@@ -31,6 +31,7 @@ class RowData(models.Model):
         encoder=DjangoJSONEncoder,
     )
     row_num = models.PositiveIntegerField()
+    headers = JSONField(null=True)
 
     # TODO: Surely there's a better, canonical way of doing this?
     def get_audited_models(self):
@@ -107,6 +108,7 @@ class AbstractBaseFileImportAttempt(TrackedModel, ImportStatusModel):
         default=None,
         help_text="Path to file that this was imported from",
     )
+    imported_by = models.CharField(max_length=128, null=True)
     creations = JSONField(encoder=DjangoErrorJSONEncoder, default=dict, null=True)
     info = JSONField(
         default=dict, null=True, help_text="Stores any file-level info about the import"

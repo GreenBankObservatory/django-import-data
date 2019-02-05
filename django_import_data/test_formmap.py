@@ -23,6 +23,7 @@ class FooForm(Form):
     bar = CharField()
     flarm = CharField()
     location = CharField()
+    gender = CharField()
 
 
 class FooFormMap(FormMap):
@@ -190,3 +191,6 @@ class FormMapTestCase(TestCase):
         with self.assertRaisesRegex(ValueError, str({"unmapped1", "unmapped2"})):
             # This should fail because we have un-mapped headers
             self.form_map.render_dict(data, allow_unknown=False)
+
+    def test_explain(self):
+        print(self.form_map.explain())

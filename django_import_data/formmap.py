@@ -226,6 +226,34 @@ class FormMap:
 
         return "FormMap"
 
+    def explain(self):
+        """EXPLAIN YOURSELF"""
+
+        if not self.form_class:
+            raise ValueError("There's nothing to explain!")
+
+        form_fields = self.form_class().fields
+
+        print(f"{self.__class__.__name__} maps:")
+
+        for field_map in self.field_maps:
+            from_fields_verbose, to_fields_verbose, explanation = field_map.explain(
+                form_fields
+            )
+            print(f"  field(s):")
+            for field_info in from_fields_verbose:
+                print(f"    * {field_info}")
+
+            print(f"  to field(s):")
+            for field_info in to_fields_verbose:
+                print(f"    * {field_info}")
+            if field_map.converter.__name__ != "nop_converter":
+                print(f"  via converter {field_map.converter.__name__}")
+
+            if explanation:
+                print(f"  explanation: {explanation}")
+            print("-" * 3)
+
     def __repr__(self):
         field_maps_str = "\n  ".join([str(field_map) for field_map in self.field_maps])
         return f"{self.get_name()} {{\n  {field_maps_str}\n}}"

@@ -30,7 +30,12 @@ class FieldMap:
     map_type = NotImplemented
 
     def __init__(
-        self, from_fields, to_fields, converter=DEFAULT_CONVERTER, aliases=None
+        self,
+        from_fields,
+        to_fields,
+        converter=DEFAULT_CONVERTER,
+        aliases=None,
+        explanation=None,
     ):
         # Strings are iterable, so will "work" for a large portion of the
         # processing, but aren't ever actually correct. So, just catch this
@@ -75,6 +80,8 @@ class FieldMap:
             raise ValueError(
                 "map_type must be set! Typically this is done by a sub-class"
             )
+
+        self.explanation = explanation
 
     @classmethod
     def _split_from_fields(cls, from_fields):
@@ -197,11 +204,72 @@ class FieldMap:
         except TypeError as error:
             raise  # ValueError("Unmapped headers!") from error
 
+    def _explain_from_fields(self, form_fields, field_names):
+        fields_verbose = []
+        for field_name in field_names:
+            try:
+                field = form_fields[field_name]
+            except KeyError as error:
+                # raise ValueError(
+                #     f"Invalid FormMap! {field_name} does not exist in form class {self.form_class}"
+                # ) from error
+                fields_verbose.append(field_name)
+            else:
+                help_text = field.help_text
+                name_str = field_name
+                if field.label:
+                    name_str += f" ({repr(field.label)})"
+                if help_text:
+                    name_str += f" ({help_text})"
+                fields_verbose.append(name_str)
+        return tuple(fields_verbose)
+
+    def _explain_to_fields(self, form_fields, field_names):
+        fields_verbose = []
+        for field_name in field_names:
+            try:
+                field = form_fields[field_name]
+            except KeyError as error:
+                # raise ValueError(
+                #     f"Invalid FormMap! {field_name} does not exist in form class {self.form_class}"
+                # ) from error
+                fields_verbose.append(field_name)
+            else:
+                if self.aliases:
+                    inverted = tuple(
+                        [
+                            alias
+                            for alias, field in self.aliases.items()
+                            if field == field_name
+                        ]
+                    )
+                    if inverted:
+                        name_str = f"{field_name}, under aliases:"
+                        for alias in inverted:
+                            name_str += f"\n      * {alias}"
+                    else:
+                        name_str = field_name
+                else:
+                    name_str = field_name
+                fields_verbose.append(name_str)
+        return tuple(fields_verbose)
+
+    def explain(self, form_fields):
+        d = {}
+        from_fields_verbose = self._explain_to_fields(form_fields, self.from_fields)
+        to_fields_verbose = self._explain_from_fields(form_fields, self.to_fields)
+
+        return from_fields_verbose, to_fields_verbose, self.explanation
+        # print(f"from_fields_verbose: {from_fields_verbose}")
+        # print(f"to_fields_verbose: {to_fields_verbose}")
+
 
 class OneToOneFieldMap(FieldMap):
     map_type = FieldMap.ONE_TO_ONE
 
-    def __init__(self, from_field, to_field=None, converter=DEFAULT_CONVERTER):
+    def __init__(
+        self, from_field, to_field=None, converter=DEFAULT_CONVERTER, explanation=None
+    ):
         # If from_field is a dict then it contains a single field along with its aliases
         if isinstance(from_field, dict):
             if len(from_field) != 1:
@@ -228,7 +296,10 @@ class OneToOneFieldMap(FieldMap):
         if converter is None:
             converter = self.nop_converter
         super().__init__(
-            from_fields=from_fields, to_fields=[to_field], converter=converter
+            from_fields=from_fields,
+            to_fields=[to_field],
+            converter=converter,
+            explanation=explanation,
         )
 
     # TODO: Consider having this return a dict?
@@ -264,9 +335,14 @@ class OneToOneFieldMap(FieldMap):
 class ManyToOneFieldMap(FieldMap):
     map_type = FieldMap.MANY_TO_ONE
 
-    def __init__(self, from_fields, to_field, converter=DEFAULT_CONVERTER):
+    def __init__(
+        self, from_fields, to_field, converter=DEFAULT_CONVERTER, explanation=None
+    ):
         super().__init__(
-            from_fields=from_fields, to_fields=[to_field], converter=converter
+            from_fields=from_fields,
+            to_fields=[to_field],
+            converter=converter,
+            explanation=explanation,
         )
 
     def render(
@@ -295,13 +371,18 @@ class ManyToOneFieldMap(FieldMap):
 class OneToManyFieldMap(FieldMap):
     map_type = FieldMap.ONE_TO_MANY
 
-    def __init__(self, from_field, to_fields, converter=DEFAULT_CONVERTER):
+    def __init__(
+        self, from_field, to_fields, converter=DEFAULT_CONVERTER, explanation=None
+    ):
         if isinstance(from_field, dict):
             from_fields = from_field
         else:
             from_fields = [from_field]
         super().__init__(
-            from_fields=from_fields, to_fields=to_fields, converter=converter
+            from_fields=from_fields,
+            to_fields=to_fields,
+            converter=converter,
+            explanation=explanation,
         )
 
 

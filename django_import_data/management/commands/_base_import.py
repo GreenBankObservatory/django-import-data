@@ -34,6 +34,8 @@ class BaseImportCommand(BaseCommand):
     # TODO: This is somewhat stupid; think of a better way
     FORM_MAPS = NotImplemented
 
+    IGNORED_HEADERS = []
+
     @classmethod
     def add_core_arguments(cls, parser):
         """Add the set of args that are common across all import commands"""
@@ -191,7 +193,11 @@ class BaseImportCommand(BaseCommand):
         return sorted(known_headers)
 
     def get_unmapped_headers(self, headers, known_headers):
-        return [header for header in headers if header not in known_headers]
+        return [
+            header
+            for header in headers
+            if header not in (*known_headers, *self.IGNORED_HEADERS)
+        ]
 
     def header_checks(self, headers):
         info = {}
@@ -285,6 +291,7 @@ class BaseImportCommand(BaseCommand):
             imported_from=path,
             info=file_level_info,
             errors=file_level_errors,
+            imported_by=self.__class__.__name__,
         )
 
         if self.PROGRESS_TYPE == self.PROGRESS_TYPES.ROW:
