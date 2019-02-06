@@ -77,7 +77,7 @@ class FormMap:
             # that it simply ignore all values it doesn't know about
             # Error checking is instead done above
             try:
-                rendered.update(field_map.render(data))
+                result = field_map.render(data)
             except ValueError as error:
                 errors.append(
                     {
@@ -87,6 +87,10 @@ class FormMap:
                         "converter": field_map.converter.__name__,
                     }
                 )
+            else:
+                if result:
+                    rendered.update(result)
+
         return rendered, errors
 
     def render(
