@@ -13,4 +13,12 @@
 
 {% include "list_base.html" with object_list=rowdata.model_import_attempts.all %}
 
+<h2>Row-Level Errors</h2>
+{% if rowdata.errors %}
+{{ rowdata.errors | json | safe }}
+{% else %}
+<p>No Errors</p>
+{% endif %}
+
+
 {% endblock %}

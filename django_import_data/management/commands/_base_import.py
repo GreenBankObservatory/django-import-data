@@ -340,7 +340,7 @@ class BaseImportCommand(BaseCommand):
             row_data = RowData.objects.create(
                 row_num=ri, data=row, file_import_attempt=file_import_attempt
             )
-            self.handle_record(row_data, file_import_attempt)
+            self.handle_record(row_data, file_import_attempt, durable=durable)
             errors = {
                 import_attempt.imported_by: import_attempt.errors
                 for import_attempt in row_data.model_import_attempts.all()

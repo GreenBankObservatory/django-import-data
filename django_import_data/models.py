@@ -32,6 +32,7 @@ class RowData(models.Model):
     )
     row_num = models.PositiveIntegerField()
     headers = JSONField(null=True)
+    errors = JSONField(null=True, default=dict)
 
     # TODO: Surely there's a better, canonical way of doing this?
     def get_audited_models(self):
