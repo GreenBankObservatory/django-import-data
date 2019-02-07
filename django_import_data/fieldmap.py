@@ -120,6 +120,35 @@ class FieldMap:
         return inverted
 
     def __repr__(self):
+        return (
+            f"{self.__class__.__name__}(\n"
+            f"  from_fields={self.from_fields!r},\n"
+            f"  converter={self.converter.__name__},\n"
+            f"  to_fields={self.to_fields!r}\n,"
+            f"  aliases={self.aliases!r}\n,"
+            ")"
+        )
+
+        # if len(self.from_fields) > 2 or len(self.to_fields) > 2:
+
+        #     return (
+        #         f"{self.__class__.__name__}(\n"
+        #         f"  from_fields={self.from_fields!r},\n"
+        #         f"  converter={self.converter.__name__},\n"
+        #         f"  to_fields={self.to_fields!r}\n,"
+        #         f"  aliases={self.aliases!r}\n",
+        #         ")",
+        #     )
+
+        # return (
+        #     f"{self.__class__.__name__}("
+        #     f"from_fields={self.from_fields!r}, "
+        #     f"converter={self.converter.__name__}, "
+        #     f"to_fields={self.to_fields!r}, "
+        #     f"aliases={self.aliases!r})"
+        # )
+
+    def __str__(self):
         if len(self.from_fields) == 1:
             from_ = "1"
             try:

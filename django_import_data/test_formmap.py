@@ -1,3 +1,4 @@
+from pprint import pprint
 from unittest import TestCase
 
 from django.forms import CharField, Form
@@ -69,7 +70,7 @@ class FormMapTestCase(TestCase):
             "unmapped": "doesn't matter",
             "flim": "abcd",
         }
-        actual = self.form_map.render_dict(data)
+        actual, __ = self.form_map.render_dict(data)
         expected = {
             "title": "Mr.",
             "first_name": "foo",
@@ -98,7 +99,7 @@ class FormMapTestCase(TestCase):
         with self.assertRaisesRegex(ValueError, str({"unmapped1", "unmapped2"})):
             # This should fail because we have un-mapped headers
             self.form_map.render_dict(data, allow_unknown=False)
-        actual = self.form_map.render_dict(data)
+        actual, __ = self.form_map.render_dict(data)
         expected = {
             "title": "Mr.",
             "first_name": "foo",
@@ -192,5 +193,27 @@ class FormMapTestCase(TestCase):
             # This should fail because we have un-mapped headers
             self.form_map.render_dict(data, allow_unknown=False)
 
-    def test_explain(self):
-        print(self.form_map.explain())
+    # def test_explain(self):
+    #     print(self.form_map.explain())
+
+    def test_get_overloaded_to_fields(self):
+        class OverloadedFooFormMap(FooFormMap):
+            field_maps = [
+                OneToOneFieldMap(
+                    from_field="oregano", to_field="flarm", converter=None
+                ),
+                OneToManyFieldMap(
+                    from_field="basil",
+                    to_fields=("flarm", "bar"),
+                    converter=lambda foo: (1, 2),
+                ),
+            ]
+
+        # In the default case, an "overloaded" FormMap shouldn't be allowed to instantiate
+        with self.assertRaisesRegex(ValueError, "The following to_fields"):
+            overloaded_form_map = OverloadedFooFormMap()
+        # If the check is turned off, it should instantiate
+        overloaded_form_map = OverloadedFooFormMap(check_for_overloaded_to_fields=False)
+        # And we should be able to get the overloaded to_fields
+        actual = overloaded_form_map.get_overloaded_to_fields()
+        self.assertEqual(list(actual.keys()), ["flarm"])

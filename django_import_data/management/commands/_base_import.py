@@ -129,6 +129,9 @@ class BaseImportCommand(BaseCommand):
 
         return sorted(files)
 
+    # TODO: This does NOT HANDLE duplicate headers! Behavior is not well
+    # defined, and there WILL BE data loss if there are duplicate headers,
+    # both with important information
     @staticmethod
     def load_rows(path):
         """Load rows from a CSV file"""
@@ -192,24 +195,36 @@ class BaseImportCommand(BaseCommand):
             known_headers.update(form_map.get_known_from_fields())
         return sorted(known_headers)
 
-    def get_unmapped_headers(self, headers, known_headers):
+    def get_unmapped_headers(self, headers_to_check, known_headers):
         return [
             header
-            for header in headers
+            for header in headers_to_check
             if header not in (*known_headers, *self.IGNORED_HEADERS)
         ]
+
+    # TODO: This currently does nothing; see TODO on load_rows
+    def get_duplicate_headers(self, headers_to_check, respect_ignored_headers=True):
+        """Given an iterable of headers, return a dict of {header: num_duplicates}
+
+        If no duplicates are found, an empty dict is returned"""
+
+        if respect_ignored_headers:
+            headers_to_check = [
+                header
+                for header in headers_to_check
+                if header not in self.IGNORED_HEADERS
+            ]
+        return {
+            header: headers_to_check.count(header)
+            for header in headers_to_check
+            if headers_to_check.count(header) > 1
+        }
 
     def header_checks(self, headers):
         info = {}
         errors = {}
-        # TODO: Resurrect
-        # If multiple headers map to the same field, report this as an error
-        # duplicate_headers = self.get_duplicate_headers(headers)
-        # if duplicate_headers:
-        #     self.report.set_duplicate_headers(duplicate_headers)
 
         # If some headers don't map to anything, report this as an error
-
         known_headers = self.get_known_headers()
         info["known_headers"] = known_headers
         unmapped_headers = self.get_unmapped_headers(headers, known_headers)
@@ -223,10 +238,6 @@ class BaseImportCommand(BaseCommand):
             errors[
                 "too_many_unmapped_headers"
             ] = f"{unmapped_header_ratio * 100:.2f}% of headers are not mapped"
-            # if not self.durable:
-            #     raise ValueError(
-            #         f"{unmapped_header_ratio * 100:.2f}% of headers are not mapped; file rejected"
-            #     )
         return info, errors
 
     def file_level_checks(self, rows):
@@ -286,6 +297,9 @@ class BaseImportCommand(BaseCommand):
             tqdm.write(f"Deleted {num_deletions} models:\n{pformat(deletions)}")
 
         file_level_info, file_level_errors = self.file_level_checks(rows)
+        if file_level_errors and not durable:
+            raise ValueError(f"One or more file-level errors: {file_level_errors}")
+
         file_import_attempt = FileImportAttempt.objects.create(
             file_importer=file_importer,
             imported_from=path,

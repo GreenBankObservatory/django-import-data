@@ -1,3 +1,4 @@
+from collections import defaultdict
 from pprint import pformat
 
 from tqdm import tqdm
@@ -26,7 +27,12 @@ class FormMap:
     importer_class = NotImplemented
     form_defaults = {}
 
-    def __init__(self, form_kwargs=None, check_every_render_for_errors=False):
+    def __init__(
+        self,
+        form_kwargs=None,
+        check_every_render_for_errors=False,
+        check_for_overloaded_to_fields=True,
+    ):
         if form_kwargs:
             self.form_kwargs = form_kwargs
         else:
@@ -57,6 +63,14 @@ class FormMap:
         # Initialize this to True so that at least the first iteration
         # is checked. It might then be set to False depending on the above
         self.check_next_render_for_errors = True
+
+        if check_for_overloaded_to_fields:
+            overloaded_to_fields = self.get_overloaded_to_fields()
+            if overloaded_to_fields:
+                raise ValueError(
+                    "The following to_fields are mapped to by multiple FieldMaps!\n"
+                    f"{pformat(overloaded_to_fields)}"
+                )
 
     def render_dict(self, data, allow_unknown=True):
         rendered = {}
@@ -216,12 +230,18 @@ class FormMap:
     def get_unknown_fields(self, data):
         return {field for field in data if field not in self.known_fields}
 
-    def get_known_to_fields(self):
-        return {
+    def get_known_to_fields(self, unique=True):
+        if unique:
+            return {
+                to_field
+                for field_map in self.field_maps
+                for to_field in field_map.to_fields
+            }
+        return [
             to_field
             for field_map in self.field_maps
             for to_field in field_map.to_fields
-        }
+        ]
 
     def get_name(self):
         if self.form_class:
@@ -261,3 +281,20 @@ class FormMap:
     def __repr__(self):
         field_maps_str = "\n  ".join([str(field_map) for field_map in self.field_maps])
         return f"{self.get_name()} {{\n  {field_maps_str}\n}}"
+
+    def get_overloaded_to_fields(self, ignored=None):
+        """Find instances where multiple FieldMaps map to the same to_field(s)"""
+
+        if ignored is None:
+            ignored = []
+
+        to_field_to_containing_field_maps = defaultdict(list)
+        for field_map in self.field_maps:
+            for to_field in field_map.to_fields:
+                to_field_to_containing_field_maps[to_field].append(field_map)
+
+        return {
+            to_field: field_maps
+            for to_field, field_maps in to_field_to_containing_field_maps.items()
+            if len(field_maps) > 1 and to_field not in ignored
+        }
