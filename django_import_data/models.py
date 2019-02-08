@@ -6,7 +6,7 @@ from pprint import pformat
 
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
 from django.contrib.contenttypes.models import ContentType
-from django.contrib.postgres.fields import JSONField
+from django.contrib.postgres.fields import ArrayField, JSONField
 from django.core.exceptions import FieldError
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import models
@@ -121,6 +121,12 @@ class AbstractBaseFileImportAttempt(TrackedModel, ImportStatusModel):
         help_text="Stores any file-level errors encountered during import",
     )
     acknowledged = models.BooleanField(default=False)
+    ignored_headers = ArrayField(
+        models.CharField(max_length=128),
+        null=True,
+        blank=True,
+        help_text="Headers that were ignored during import",
+    )
 
     class Meta:
         abstract = True

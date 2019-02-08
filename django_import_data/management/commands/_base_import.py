@@ -249,10 +249,8 @@ class BaseImportCommand(BaseCommand):
         headers = rows[0].keys()
         header_check_info, header_check_errors = self.header_checks(headers)
 
-        if header_check_info:
-            info["header_checks"] = header_check_info
-        if header_check_errors:
-            errors["header_checks"] = header_check_errors
+        info.update(header_check_info)
+        errors.update(header_check_errors)
 
         return info, errors
 
@@ -362,6 +360,7 @@ class BaseImportCommand(BaseCommand):
         creations, errors = self.summary(file_import_attempt, all_errors)
         file_import_attempt.creations = creations
         file_import_attempt.errors.update(errors)
+        file_import_attempt.ignored_headers = self.IGNORED_HEADERS
         file_import_attempt.save()
         return file_import_attempt
 
@@ -447,7 +446,24 @@ class BaseImportCommand(BaseCommand):
         return file_import_attempts
 
     def post_import_checks(self, file_import_attempts):
-        pass
+        tqdm.write("All File-Level Errors")
+        all_file_errors = [fia.errors for fia in file_import_attempts if fia.errors]
+
+        unique_file_error_types = set(
+            (key for e in all_file_errors for key in e.keys())
+        )
+
+        all_unique_errors = {}
+        for error_type in unique_file_error_types:
+            errors_by_file = [
+                file_errors[error_type]
+                for file_errors in all_file_errors
+                if error_type in file_errors
+            ]
+            unique_errors = set(error for errors in errors_by_file for error in errors)
+            all_unique_errors[error_type] = unique_errors
+        tqdm.write(pformat(all_unique_errors))
+        tqdm.write("=" * 80)
 
     def handle(self, *args, **options):
         files_to_process = self.determine_files_to_process(
