@@ -17,6 +17,9 @@ from the list of FieldMap instances
 DEFAULT_CONVERTER = None
 DEFAULT_ALLOW_UNKNOWN = True
 
+from .mermaid import render_field_map_as_mermaid
+from .utils import to_fancy_str
+
 
 class FieldMap:
     """Map a to_field to its associated from_fields, a converter function, and any aliases"""
@@ -59,12 +62,15 @@ class FieldMap:
             )
 
         if aliases is not None:
-            self.aliases = aliases
+            self.fields_to_aliases = aliases
         # Aliases are given via dict, so handle this case
         if isinstance(from_fields, dict):
-            self.aliases, self.from_fields = self._split_from_fields(from_fields)
+            self.aliases, self.fields_to_aliases, self.from_fields = self._split_from_fields(
+                from_fields
+            )
         else:
             self.aliases = {}
+            self.fields_to_aliases = {}
 
         # if converter is None:
         #     raise ValueError("converter must be given!")
@@ -84,15 +90,42 @@ class FieldMap:
         self.explanation = explanation
 
     @classmethod
+    def _expand_aliases(cls, fields_to_aliases):
+        expanded = {}
+        for field, aliases in fields_to_aliases.items():
+            if aliases is not None:
+                if isinstance(aliases, str):
+                    alias = aliases
+                    expanded[field] = [alias]
+                else:
+                    expanded[field] = aliases
+
+        return expanded
+
+    @property
+    def converter_name(self):
+        return self.converter.__name__ if self.converter else "<no converter>"
+
+    def has_converter(self):
+        if not self.converter:
+            return False
+
+        if self.converter.__name__ == "nop_converter":
+            return False
+
+        return True
+
+    @classmethod
     def _split_from_fields(cls, from_fields):
         if not isinstance(from_fields, dict):
             raise ValueError(
                 "_split_from_fields requires aliases to be passed "
                 "in as a dict of {from_field: aliases}"
             )
-        aliases = cls._invert_aliases(from_fields)
+        inverted_aliases = cls._invert_aliases(from_fields)
+        expanded_aliases = cls._expand_aliases(from_fields)
         from_fields = tuple(from_fields.keys())
-        return aliases, from_fields
+        return inverted_aliases, expanded_aliases, from_fields
 
     @classmethod
     def _invert_aliases(cls, fields_to_aliases):
@@ -175,6 +208,15 @@ class FieldMap:
 
     def get_unknown_fields(self, data):
         return {field for field in data if field not in self.known_fields}
+
+    def get_from_fields_without_aliases(self):
+        if self.fields_to_aliases:
+            return [
+                from_field
+                for from_field in self.from_fields
+                if from_field not in self.fields_to_aliases
+            ]
+        return self.from_fields
 
     def unalias(self, data, allow_unknown=DEFAULT_ALLOW_UNKNOWN):
         unaliased = {}
@@ -292,6 +334,21 @@ class FieldMap:
         # print(f"from_fields_verbose: {from_fields_verbose}")
         # print(f"to_fields_verbose: {to_fields_verbose}")
 
+    def as_mermaid(self, *args, **kwargs):
+        return render_field_map_as_mermaid(self, *args, **kwargs)
+
+    def as_sentence(self):
+        from_fields_label = "fields" if len(self.from_fields) > 1 else "field"
+        to_fields_label = "fields" if len(self.to_fields) > 1 else "field"
+        return (
+            f"Maps {from_fields_label} {to_fancy_str(self.from_fields, quote=True)} "
+            f"to {to_fields_label} {to_fancy_str(self.to_fields, quote=True)} "
+            f"via converter {self.converter_name!r}"
+        )
+
+    def get_name(self):
+        return self.__class__.__name__
+
 
 class OneToOneFieldMap(FieldMap):
     map_type = FieldMap.ONE_TO_ONE
@@ -330,6 +387,10 @@ class OneToOneFieldMap(FieldMap):
             converter=converter,
             explanation=explanation,
         )
+        assert len(self.from_fields) == 1, "Should only be one from field!"
+        self.from_field = self.from_fields[0]
+        assert len(self.to_fields) == 1, "Should only be one to field!"
+        self.to_field = self.to_fields[0]
 
     # TODO: Consider having this return a dict?
     def nop_converter(self, value):
@@ -373,6 +434,8 @@ class ManyToOneFieldMap(FieldMap):
             converter=converter,
             explanation=explanation,
         )
+        assert len(self.to_fields) == 1, "Should only be one to field!"
+        self.to_field = self.to_fields[0]
 
     def render(
         self, data, converter=DEFAULT_CONVERTER, allow_unknown=DEFAULT_ALLOW_UNKNOWN
@@ -413,6 +476,8 @@ class OneToManyFieldMap(FieldMap):
             converter=converter,
             explanation=explanation,
         )
+        assert len(self.from_fields) == 1, "Should only be one from field!"
+        self.from_field = self.from_fields[0]
 
 
 class ManyToManyFieldMap(FieldMap):

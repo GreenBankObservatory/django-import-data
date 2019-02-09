@@ -22,3 +22,20 @@ class DjangoErrorJSONEncoder(DjangoJSONEncoder):
             return repr(obj)
 
         return super().default(obj)
+
+
+def to_fancy_str(iterable, quote=False):
+    iterable_length = len(iterable)
+    if quote:
+        stringifier = lambda x: repr(str(x))
+    else:
+        stringifier = str
+    if iterable_length == 0:
+        return ""
+    elif iterable_length == 1:
+        return stringifier(list(iterable)[0])
+    elif iterable_length == 2:
+        return " and ".join([stringifier(item) for item in iterable])
+    else:
+        l = [stringifier(item) for item in iterable]
+        return f"{', '.join(l[:-1])}, and {l[-1]}"

@@ -1,6 +1,7 @@
 """Django Import Data Models"""
 
 from collections import Counter
+from importlib import import_module
 import os
 from pprint import pformat
 
@@ -176,6 +177,13 @@ class AbstractBaseFileImportAttempt(TrackedModel, ImportStatusModel):
                 deletions += deletions_for_model_class
 
         return (num_deletions, deletions)
+
+    def get_form_maps_used_during_import(self):
+        return import_module(f"{self.imported_by}").Command.FORM_MAPS
+
+    def get_field_maps_used_during_import(self):
+        form_maps = self.get_field_maps_used_during_import()
+        return {form_map.get_name(): form_map.field_maps for form_map in form_maps}
 
 
 class AbstractBaseModelImportAttempt(TrackedModel, ImportStatusModel):

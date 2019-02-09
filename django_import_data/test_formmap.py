@@ -25,6 +25,11 @@ class FooForm(Form):
     flarm = CharField()
     location = CharField()
     gender = CharField()
+    fruit = CharField()
+
+
+def handle_fruits(asparagus, tomato):
+    return "foo"
 
 
 class FooFormMap(FormMap):
@@ -47,8 +52,14 @@ class FooFormMap(FormMap):
             converter=handle_location,
             to_field="location",
         ),
+        ManyToOneFieldMap(
+            from_fields={"asparagus": ("ASP.", "asp"), "tomato": None},
+            converter=handle_fruits,
+            to_field="fruit",
+        ),
         # 1:1, no converter
         OneToOneFieldMap(from_field="foo", to_field="bar"),
+        OneToOneFieldMap(from_field="another", to_field="one"),
         # 1:1, with converter
         OneToOneFieldMap(from_field="flim", to_field="flarm", converter=make_uppercase),
     ]
@@ -193,8 +204,8 @@ class FormMapTestCase(TestCase):
             # This should fail because we have un-mapped headers
             self.form_map.render_dict(data, allow_unknown=False)
 
-    # def test_explain(self):
-    #     print(self.form_map.explain())
+    def test_explain(self):
+        print(self.form_map.explain())
 
     def test_get_overloaded_to_fields(self):
         class OverloadedFooFormMap(FooFormMap):
@@ -217,3 +228,6 @@ class FormMapTestCase(TestCase):
         # And we should be able to get the overloaded to_fields
         actual = overloaded_form_map.get_overloaded_to_fields()
         self.assertEqual(list(actual.keys()), ["flarm"])
+
+    def test_as_mermaid(self):
+        print(self.form_map.as_mermaid())

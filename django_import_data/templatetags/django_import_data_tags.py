@@ -1,6 +1,8 @@
 import json as json_
 
 from django import template
+from django.core.exceptions import FieldDoesNotExist
+
 
 try:
     from pygments import highlight
@@ -44,3 +46,21 @@ def model_name(model):
             return model.__name__
     except AttributeError:
         return None
+
+
+@register.filter
+def gethash(thing):
+    return abs(hash(thing))
+
+
+@register.simple_tag
+def get_verbose_name(form_map, field_name):
+    return form_map.form_class.Meta.model._meta.get_field(field_name).verbose_name
+
+
+@register.filter
+def double_to_single_quotes(string):
+    s = string.replace('"', "'")
+    if not s:
+        return "EMPTY ALIAS"
+    return s

@@ -5,6 +5,8 @@ from tqdm import tqdm
 
 from django.forms import ModelForm, ValidationError
 
+from .mermaid import render_form_map_as_mermaid
+
 DEFAULT_THRESHOLD = 0.7
 
 
@@ -140,11 +142,20 @@ class FormMap:
 
     # TODO: remove file_import_attempt; use row_data.file_import_attempt
     def save_with_audit(
-        self, row_data, data=None, form=None, file_import_attempt=None, **kwargs
+        self,
+        row_data,
+        data=None,
+        form=None,
+        file_import_attempt=None,
+        imported_by=None,
+        **kwargs,
     ):
         from django.contrib.contenttypes.models import ContentType
         from django_import_data.models import ModelImportAttempt
         from .models import RowData
+
+        if imported_by is None:
+            raise ValueError("imported_by is required!")
 
         if not isinstance(row_data, RowData):
             raise ValueError("aw snap")
@@ -175,7 +186,7 @@ class FormMap:
                 file_import_attempt=file_import_attempt,
                 model=form.Meta.model,
                 row_data=row_data,
-                imported_by=self.__class__.__name__,
+                imported_by=imported_by,
                 errors=all_errors,
             )
             instance = form.save(commit=False)
@@ -189,7 +200,7 @@ class FormMap:
             file_import_attempt=file_import_attempt,
             model=form.Meta.model,
             row_data=row_data,
-            imported_by=self.__class__.__name__,
+            imported_by=imported_by,
         )
         return None, model_import_attempt
 
@@ -244,7 +255,7 @@ class FormMap:
         ]
 
     def get_name(self):
-        if self.form_class:
+        if self.form_class and hasattr(self.form_class, "Meta"):
             model = self.form_class.Meta.model.__name__
             return f"FormMap<{model}>"
 
@@ -298,3 +309,6 @@ class FormMap:
             for to_field, field_maps in to_field_to_containing_field_maps.items()
             if len(field_maps) > 1 and to_field not in ignored
         }
+
+    def as_mermaid(self, *args, **kwargs):
+        return render_form_map_as_mermaid(self, *args, **kwargs)

@@ -303,7 +303,7 @@ class BaseImportCommand(BaseCommand):
             imported_from=path,
             info=file_level_info,
             errors=file_level_errors,
-            imported_by=self.__class__.__name__,
+            imported_by=self.__module__,
         )
 
         if self.PROGRESS_TYPE == self.PROGRESS_TYPES.ROW:
@@ -447,7 +447,9 @@ class BaseImportCommand(BaseCommand):
 
     def post_import_checks(self, file_import_attempts):
         tqdm.write("All File-Level Errors")
-        all_file_errors = [fia.errors for fia in file_import_attempts if fia.errors]
+        all_file_errors = [
+            fia.errors for fia in file_import_attempts if fia and fia.errors
+        ]
 
         unique_file_error_types = set(
             (key for e in all_file_errors for key in e.keys())
@@ -492,3 +494,10 @@ class BaseImportCommand(BaseCommand):
                     tqdm.write("DRY RUN; rolling back changes")
 
         self.post_import_checks(file_import_attempts)
+
+    def as_mermaid(self):
+        mermaid_str = ""
+        for form_map in self.FORM_MAPS:
+            mermaid = form_map.as_mermaid(orientation=None)
+            mermaid_str += f"<h3>{form_map.get_name()}</h3>{mermaid}\n"
+        return f"graph LR\n{mermaid_str}"
