@@ -254,11 +254,11 @@ class BaseImportCommand(BaseCommand):
 
         return info, errors
 
-    def handle_file(self, path, durable=False, overwrite=False, **options):
+    def handle_file(self, path, file_import_batch, **options):
         try:
             rows = list(self.load_rows(path))
         except ValueError as error:
-            if durable:
+            if options["durable"]:
                 tqdm.write(str(error))
             else:
                 raise ValueError("Error loading rows!") from error
@@ -284,7 +284,7 @@ class BaseImportCommand(BaseCommand):
             tqdm.write(
                 f"Previous FIA found; deleting it: {previous_file_import_attempt}"
             )
-            if not overwrite:
+            if not options["overwrite"]:
                 raise ValueError(
                     f"Found previous File Import Attempt '{previous_file_import_attempt}', "
                     "but cannot delete it due to presence of overwrite=False!"
@@ -295,10 +295,11 @@ class BaseImportCommand(BaseCommand):
             tqdm.write(f"Deleted {num_deletions} models:\n{pformat(deletions)}")
 
         file_level_info, file_level_errors = self.file_level_checks(rows)
-        if file_level_errors and not durable:
+        if file_level_errors and not options["durable"]:
             raise ValueError(f"One or more file-level errors: {file_level_errors}")
 
         file_import_attempt = FileImportAttempt.objects.create(
+            file_import_batch=file_import_batch,
             file_importer=file_importer,
             imported_from=path,
             info=file_level_info,
@@ -338,7 +339,9 @@ class BaseImportCommand(BaseCommand):
             row_data = RowData.objects.create(
                 row_num=ri, data=row, file_import_attempt=file_import_attempt
             )
-            self.handle_record(row_data, file_import_attempt, durable=durable)
+            self.handle_record(
+                row_data, file_import_attempt, durable=options["durable"]
+            )
             errors = {
                 import_attempt.imported_by: import_attempt.errors
                 for import_attempt in row_data.model_import_attempts.all()
@@ -350,7 +353,7 @@ class BaseImportCommand(BaseCommand):
                     f"Row {ri} handled, but had {len(errors)} errors:\n"
                     f"{json.dumps(errors, indent=2)}"
                 )
-                if durable:
+                if options["durable"]:
                     tqdm.write(error_str)
                 else:
                     raise ValueError(error_str)
@@ -439,10 +442,19 @@ class BaseImportCommand(BaseCommand):
         return [dict(creation) for creation in creations], error_summary
 
     def handle_files(self, files_to_process, **options):
+        FileImportBatch = apps.get_model("django_import_data.FileImportBatch")
+        current_command = self.__module__.split(".")[-1]
+        # NOTE: Any future positional args will need to be popped out here, too
+        paths = options.pop("paths")
+        file_import_batch = FileImportBatch.objects.create(
+            command=current_command, args=paths, kwargs=options
+        )
         file_import_attempts = []
         for path in files_to_process:
             tqdm.write(f"Processing {path}")
-            file_import_attempts.append(self.handle_file(path, **options))
+            file_import_attempts.append(
+                self.handle_file(path, file_import_batch, **options)
+            )
         return file_import_attempts
 
     def post_import_checks(self, file_import_attempts):

@@ -36,3 +36,13 @@ class TrackedModel(models.Model):
 
     class Meta:
         abstract = True
+
+
+class IsActiveModel(models.Model):
+    """An abstract class that allows objects to be 'soft' deleted.
+    """
+
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        abstract = True

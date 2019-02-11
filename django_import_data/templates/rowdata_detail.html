@@ -3,6 +3,8 @@
 
 {% block content %}
 
+{% make_breadcrumb rowdata %}
+
 <h1>Row Data</h1>
 <p>
     Row {{ rowdata.row_num }} from <a href="file://{{ rowdata.file_import_attempt.imported_from }}">{{ rowdata.file_import_attempt.name }}</a>

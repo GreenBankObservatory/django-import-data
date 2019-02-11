@@ -1,0 +1,132 @@
+{% load django_import_data_tags %}
+
+<nav class="navbar-expand-lg d-print-none" aria-label="breadcrumb">
+  <div class="collapse navbar-collapse" id="navbarSupportedContent">
+      <ol class="breadcrumb">
+        <li
+            {% if current == "file_import_batch" %}
+            class="breadcrumb-item active"
+            aria-current="page"
+            {% else %}
+            class="breadcrumb-item"
+            {% endif %}
+        >
+        {% if file_import_batch and current != "file_import_batch" %}
+            <a
+                href="{% url 'fileimportbatch_detail' file_import_batch.id %}"
+                title="The batch of files that this was imported alongside"
+            >
+                File Import Batch
+            </a>
+        {% else %}
+            File Import Batch
+        {% endif %}
+        </li>
+
+        <li
+            {% if current == "file_importer" %}
+            class="breadcrumb-item active"
+            aria-current="page"
+            {% else %}
+            class="breadcrumb-item"
+            {% endif %}
+        >
+        {% if file_importer  and current != "file_importer" %}
+            <a
+                href="{% url 'fileimporter_detail' file_importer.id %}"
+                title="History of every time an attempt has been made to import the file from which this was created"
+            >
+                File Import History
+            </a>
+        {% else %}
+            File Import History
+        {% endif %}
+        </li>
+
+        <li
+            {% if current == "file_import_attempt" %}
+            class="breadcrumb-item active"
+            aria-current="page"
+            {% else %}
+            class="breadcrumb-item"
+            {% endif %}
+        >
+        {% if file_import_attempt and current != "file_import_attempt" %}
+            <a
+                href="{% url 'fileimportattempt_detail' file_import_attempt.id %}"
+                title="The report of the file import attempt that ultimately created this"
+            >
+                File Import Attempt
+            </a>
+        {% else %}
+            File Import Attempt
+        {% endif %}
+        </li>
+
+        <li
+            {% if current == "row_data" %}
+            class="breadcrumb-item active"
+            aria-current="page"
+            {% else %}
+            class="breadcrumb-item"
+            {% endif %}
+            {% if row_data %}
+            title="The number of the row from which this was created"
+            {% endif %}
+        >
+        {% if row_data and current != "row_data" %}
+            <a
+                href="{% url 'rowdata_detail' row_data.id %}"
+            >
+                Row Import
+            </a>
+        {% else %}
+            Row Import
+        {% endif %}
+        </li>
+
+        <li
+            {% if current == "model_import_attempt" %}
+            class="breadcrumb-item active"
+            aria-current="page"
+            {% else %}
+            class="breadcrumb-item"
+            {% endif %}
+        >
+        {% if model_import_attempt and current != "model_import_attempt" %}
+            <a
+                href={% url "modelimportattempt_detail" model_import_attempt.id %}
+                {% if importee %}
+                title="The model import attempt that created this {{ object|model_name|default:'Model' }}"
+                {% else %}
+                title="The model import attempt that attempted to created a {{ object|model_name|default:'Model' }}"
+                {% endif %}
+            >
+                {{ model_import_attempt.importee_class|model_name }} Import Attempt
+            </a>
+        {% else %}
+            {{ model_import_attempt.importee_class|model_name|default:"Model" }} Import Attempt
+        </li>
+        {% endif %}
+
+        <li
+            {% if current == "importee" %}
+            class="breadcrumb-item active" aria-current="page"
+            {% else %}
+            class="breadcrumb-item"
+            {% endif %}
+        >
+        {% if importee and current != "importee" %}
+            <a
+                href="{{ importee.get_absolute_url }}"
+                title="The model, as created by this model import attempt"
+            >
+                {{ importee|model_name|default:'Model' }}
+            </a>
+        {% else %}
+            {{ importee|model_name|default:'Model' }}
+        {% endif %}
+        </li>
+      </ol>
+    </div>
+</nav>

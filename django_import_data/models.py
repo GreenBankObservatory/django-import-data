@@ -9,13 +9,14 @@ from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelatio
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.postgres.fields import ArrayField, JSONField
 from django.core.exceptions import FieldError
+from django.core.management import call_command
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import models
 from django.db import transaction
 from django.urls import reverse
 from django.utils.functional import cached_property
 
-from .mixins import ImportStatusModel, TrackedModel
+from .mixins import IsActiveModel, ImportStatusModel, TrackedModel
 from .utils import DjangoErrorJSONEncoder
 
 
@@ -62,7 +63,80 @@ class RowData(models.Model):
     #     return self.import_attempts.filter(status="rejected").exists()
 
 
-class AbstractBaseFileImporter(TrackedModel, ImportStatusModel):
+class AbstractBaseFileImportBatch(IsActiveModel, TrackedModel, ImportStatusModel):
+    command = models.CharField(max_length=64, default=None)
+    args = ArrayField(models.CharField(max_length=256))
+    kwargs = JSONField()
+
+    @cached_property
+    def cli(self):
+        clean_options = {}
+        for key, value in self.kwargs.items():
+            if key not in (
+                "settings",
+                "start_index",
+                "traceback",
+                "verbosity",
+                "skip_checks",
+                "no_color",
+                "pythonpath",
+            ):
+                if isinstance(value, list):
+                    value = " ".join(value)
+
+                if isinstance(key, str):
+                    key = key.replace("_", "-")
+
+                clean_options[key] = value
+
+        importer_name = self.command
+        args_str = " ".join(self.args)
+        options_str = ""
+        for key, value in clean_options.items():
+            if isinstance(value, bool):
+                if value:
+                    options_str += f" --{key}"
+            elif value is not None:
+                options_str += f" --{key} {value}"
+        return f"python manage.py {importer_name} {args_str}{options_str}"
+
+    class Meta:
+        abstract = True
+
+    def __str__(self):
+        return self.cli
+
+    @transaction.atomic
+    def delete_imported_models(self):
+        """Delete all models imported by this FIB"""
+
+        self.is_active = False
+        self.save()
+
+        total_num_fia_deletions = 0
+        total_num_mia_deletions = 0
+        all_mia_deletions = Counter()
+        # For every ContentType imported by this FIB...
+        for fia in self.file_import_attempts.all():
+            # ...and delete them:
+            num_fia_deletions, fia_deletions = fia.delete_imported_models()
+            total_num_fia_deletions += 1
+            total_num_mia_deletions += num_fia_deletions
+            all_mia_deletions += fia_deletions
+
+        return (total_num_fia_deletions, total_num_mia_deletions, all_mia_deletions)
+
+    @transaction.atomic
+    def reimport(self):
+        """Delete then reimport all models imported by this FIB"""
+
+        num_fias_deleted, num_models_deleted, deletions = self.delete_imported_models()
+        print(num_fias_deleted, num_models_deleted, deletions)
+        call_command(self.command, *self.args, **{**self.kwargs, "overwrite": True})
+        return FileImportBatch.objects.first()
+
+
+class AbstractBaseFileImporter(IsActiveModel, TrackedModel, ImportStatusModel):
     """Representation of all attempts to import a specific file"""
 
     # TODO: Reconsider unique
@@ -99,10 +173,11 @@ class AbstractBaseFileImporter(TrackedModel, ImportStatusModel):
         self.file_import_attempts.update(acknowledged=value)
 
 
-class AbstractBaseFileImportAttempt(TrackedModel, ImportStatusModel):
+class AbstractBaseFileImportAttempt(IsActiveModel, TrackedModel, ImportStatusModel):
     """Represents an individual attempt at an import of a "batch" of Importers"""
 
     file_importer = NotImplemented
+    file_import_batch = NotImplemented
 
     # TODO: Make this a FileField?
     imported_from = models.CharField(
@@ -142,6 +217,21 @@ class AbstractBaseFileImportAttempt(TrackedModel, ImportStatusModel):
             self.file_importer.status = self.status
             self.file_importer.last_imported_path = self.imported_from
             self.file_importer.save()
+        if propagate_status and self.file_import_batch:
+            need_save = False
+            if (
+                self.STATUSES[self.status]
+                > self.STATUSES[self.file_import_batch.status]
+            ):
+                self.file_import_batch.status = self.status
+                need_save = True
+
+            if not self.is_active:
+                self.file_import_batch.is_active = False
+                need_save = True
+
+            if need_save:
+                self.file_import_batch.save()
 
         super().save(*args, **kwargs)
 
@@ -153,6 +243,9 @@ class AbstractBaseFileImportAttempt(TrackedModel, ImportStatusModel):
     @transaction.atomic
     def delete_imported_models(self):
         """Delete all models imported by this FIA"""
+
+        self.is_active = False
+        self.save()
 
         num_deletions = 0
         deletions = Counter()
@@ -186,7 +279,7 @@ class AbstractBaseFileImportAttempt(TrackedModel, ImportStatusModel):
         return {form_map.get_name(): form_map.field_maps for form_map in form_maps}
 
 
-class AbstractBaseModelImportAttempt(TrackedModel, ImportStatusModel):
+class AbstractBaseModelImportAttempt(IsActiveModel, TrackedModel, ImportStatusModel):
     # TODO: This MAYBE can be here
     row_data = models.ForeignKey(
         RowData,
@@ -246,6 +339,7 @@ class AbstractBaseModelImportAttempt(TrackedModel, ImportStatusModel):
             self.status = ImportStatusModel.STATUSES.created_clean.name
 
         if propagate_status and self.file_import_attempt:
+            need_save = False
             if (
                 self.STATUSES[self.status]
                 > self.STATUSES[self.file_import_attempt.status]
@@ -254,7 +348,15 @@ class AbstractBaseModelImportAttempt(TrackedModel, ImportStatusModel):
                 #     f"Set FIA status from {self.file_import_attempt.status} to {self.status}"
                 # )
                 self.file_import_attempt.status = self.status
+                need_save = True
+
+            if not self.is_active:
+                self.file_import_attempt.is_active = False
+                need_save = True
+
+            if need_save:
                 self.file_import_attempt.save()
+
         super().save(*args, **kwargs)
 
     def summary(self):
@@ -296,6 +398,9 @@ class AbstractBaseModelImportAttempt(TrackedModel, ImportStatusModel):
     def delete_imported_models(self):
         """Delete all models imported by this MIA"""
 
+        self.is_active = False
+        self.save()
+
         num_deletions = 0
         deletions = Counter()
         # For every ContentType imported by this MIA...
@@ -312,6 +417,16 @@ class AbstractBaseModelImportAttempt(TrackedModel, ImportStatusModel):
 
 
 ### CONCRETE CLASSES ###
+
+
+class FileImportBatch(AbstractBaseFileImportBatch):
+    def get_absolute_url(self):
+        return reverse("fileimportbatch_detail", args=[str(self.id)])
+
+    class Meta:
+        verbose_name = "File Import Batch"
+        verbose_name_plural = "File Import Batches"
+        ordering = ["-created_on"]
 
 
 class FileImporterManager(models.Manager):
@@ -342,6 +457,9 @@ class FileImportAttempt(AbstractBaseFileImportAttempt):
     # TODO: Just importer?
     file_importer = models.ForeignKey(
         FileImporter, related_name="file_import_attempts", on_delete=models.CASCADE
+    )
+    file_import_batch = models.ForeignKey(
+        FileImportBatch, related_name="file_import_attempts", on_delete=models.CASCADE
     )
 
     class Meta:
