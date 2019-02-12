@@ -180,14 +180,14 @@ class FormMap:
             all_errors["conversion_errors"] = conversion_errors
         if useful_form_errors:
             all_errors["form_errors"] = useful_form_errors
-        if form.is_valid():
+        if not (conversion_errors or useful_form_errors):
             model_import_attempt = ModelImportAttempt.objects.create_for_model(
-                importee_field_data=form.data,
+                errors=all_errors,
                 file_import_attempt=file_import_attempt,
+                imported_by=imported_by,
+                importee_field_data=form.data,
                 model=form.Meta.model,
                 row_data=row_data,
-                imported_by=imported_by,
-                errors=all_errors,
             )
             instance = form.save(commit=False)
             instance.model_import_attempt = model_import_attempt
@@ -195,12 +195,12 @@ class FormMap:
             return instance, model_import_attempt
 
         model_import_attempt = ModelImportAttempt.objects.create_for_model(
-            importee_field_data=form.data,
             errors=all_errors,
             file_import_attempt=file_import_attempt,
+            imported_by=imported_by,
+            importee_field_data=form.data,
             model=form.Meta.model,
             row_data=row_data,
-            imported_by=imported_by,
         )
         return None, model_import_attempt
 
