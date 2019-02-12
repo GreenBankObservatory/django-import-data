@@ -1,0 +1,61 @@
+{% load django_import_data_tags %}
+
+{{ graph_type }}
+{% if include_subgraphs %}
+subgraph {{ field_map.get_name }}
+{% if field_map.fields_to_aliases %}
+{% if field_map.fields_to_aliases|length > 1 %}
+subgraph aliases
+{% endif %}
+
+    {% for from_field, aliases in field_map.fields_to_aliases.items %}
+    subgraph {{ from_field }} aliases
+    {% for alias in aliases %}
+    {{ from_field|spaces_to_underscores }}_alias_{{ forloop.counter }}_{{field_map|gethash}}["{{ alias|double_to_single_quotes }}"]
+    {% endfor %}
+    end
+    {% endfor %}
+{% if field_map.fields_to_aliases|length > 1 %}
+end
+{% endif %}
+{% endif %}
+
+subgraph from fields
+    {% for from_field in field_map.from_fields %}
+    {{ from_field|spaces_to_underscores }}_from_field_{{field_map|gethash}}[{{ from_field }}]
+    {% endfor %}
+end
+
+subgraph converter
+    {{ field_map.converter_name }}_{{field_map|gethash}}[{{ field_map.converter_name }}]
+end
+
+subgraph to fields
+    {% for to_field in field_map.to_fields %}
+    {{ to_field }}_to_field_{{field_map|gethash}}[{{ to_field }}]
+    {% endfor %}
+end
+{% endif %}
+
+
+{% for from_field, aliases in field_map.fields_to_aliases.items %}
+{% for alias in aliases %}
+{{ from_field|spaces_to_underscores }}_alias_{{ forloop.counter }}_{{field_map|gethash}}["{{ alias|double_to_single_quotes }}"] {{ alias_connector|default:"---" }} {{ from_field|spaces_to_underscores }}_from_field_{{field_map|gethash}}[{{ from_field }}]
+{% endfor %}
+{{ from_field|spaces_to_underscores }}_from_field_{{field_map|gethash}} {{ from_field_connector|default:"-->" }} {{ field_map.converter_name }}_{{field_map|gethash}}[{{ field_map.converter_name }}]
+style {{ from_field|spaces_to_underscores }}_from_field_{{field_map|gethash}} fill:#b8b8c7
+{% endfor %}
+
+{% for from_field in field_map.get_from_fields_without_aliases %}
+{{ from_field|spaces_to_underscores }}_from_field_{{field_map|gethash}} {{ from_field_connector|default:"-->" }} {{ field_map.converter_name }}_{{field_map|gethash}}[{{ field_map.converter_name }}]
+style {{ from_field|spaces_to_underscores }}_from_field_{{field_map|gethash}} fill:#b8b8c7
+{% endfor %}
+style {{ field_map.converter_name }}_{{field_map|gethash}} fill:#d5d5dd
+{% for to_field in field_map.to_fields %}
+{{ field_map.converter_name }}_{{field_map|gethash}} {{ to_field_connector|default:"-->" }} {{ to_field }}_to_field_{{field_map|gethash}}[{{ to_field }}]
+style {{ to_field }}_to_field_{{field_map|gethash}} fill:#f1f1f4
+{% endfor %}
+
+{% if include_subgraphs %}
+end
+{% endif %}

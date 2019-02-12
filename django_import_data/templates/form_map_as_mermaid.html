@@ -1,0 +1,8 @@
+{% load django_import_data_tags %}
+
+{{ graph_type }}
+{% for field_map in form_map.field_maps %}
+subgraph FieldMap
+{% include "field_map_as_mermaid.html" %}
+end
+{% endfor %}

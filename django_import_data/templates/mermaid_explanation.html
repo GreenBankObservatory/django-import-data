@@ -1,0 +1,25 @@
+{% load django_import_data_tags %}
+
+<script src="https://unpkg.com/mermaid@8.0.0/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad:true});</script>
+
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-md-12 mx-auto">
+        <h2>Form Map Explanations</h2>
+        {% for form_map_name, field_maps in form_maps_to_field_maps.items %}
+            <div class="container-fluid">
+                <h3>{{ form_map_name }}</h3>
+                {% for field_map in field_maps %}
+                <div class="mermaid">
+                {{ field_map.as_mermaid }}
+                </div>
+                {% if field_map.explanation %}
+                    <p title="Explanation of/rationale behind FieldMap">Explanation of the above: {{ field_map.explanation }}</p>
+                {% endif %}
+                {% endfor %}
+            </div>
+        {% endfor %}
+        </div>
+    </div>
+</div>
