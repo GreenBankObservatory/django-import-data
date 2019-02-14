@@ -17,6 +17,7 @@ from the list of FieldMap instances
 DEFAULT_CONVERTER = None
 DEFAULT_ALLOW_UNKNOWN = True
 
+from inspect import getfullargspec
 from .mermaid import render_field_map_as_mermaid
 from .utils import to_fancy_str
 
@@ -258,7 +259,10 @@ class FieldMap:
                 try:
                     converted = converter(**ret)
                 except TypeError as error:
-                    raise  # ValueError("Unmapped headers!") from error
+                    argspec = getfullargspec(converter)
+                    raise TypeError(
+                        f"Converter {converter.__name__} (args: {argspec.args}) rejected args: {list(ret)}"
+                    ) from error
                 if not isinstance(converted, dict):
                     return {to_field: converted}
                 return converted
@@ -273,7 +277,10 @@ class FieldMap:
         try:
             return converter(**ret)
         except TypeError as error:
-            raise  # ValueError("Unmapped headers!") from error
+            argspec = getfullargspec(converter)
+            raise TypeError(
+                f"Converter {converter.__name__} ({argspec.args}) rejected args: {list(ret)}"
+            ) from error
 
     def _explain_from_fields(self, form_fields, field_names):
         fields_verbose = []
@@ -450,10 +457,10 @@ class ManyToOneFieldMap(FieldMap):
         try:
             converted = converter(**ret)
         except TypeError as error:
-            if "required positional" in str(error):
-                raise ValueError(f"Unmapped headers! {error}") from error
-            else:
-                raise
+            argspec = getfullargspec(converter)
+            raise TypeError(
+                f"Converter {converter.__name__} ({argspec.args}) rejected args: {list(ret)}"
+            ) from error
 
         if not isinstance(converted, dict):
             return {to_field: converted}
