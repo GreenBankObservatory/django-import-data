@@ -108,7 +108,7 @@ class AbstractBaseFileImportBatch(TrackedModel, ImportStatusModel):
 
     @property
     def is_active(self):
-        """FIB is active as long as ny of its import attempts are still active"""
+        """FIB is active as long as any of its import attempts are still active"""
         return self.file_import_attempts.filter(is_active=True).exists()
 
     @transaction.atomic
@@ -138,7 +138,7 @@ class AbstractBaseFileImportBatch(TrackedModel, ImportStatusModel):
         return FileImportBatch.objects.first()
 
 
-class AbstractBaseFileImporter(IsActiveModel, TrackedModel, ImportStatusModel):
+class AbstractBaseFileImporter(TrackedModel, ImportStatusModel):
     """Representation of all attempts to import a specific file"""
 
     # TODO: Reconsider unique
@@ -174,8 +174,13 @@ class AbstractBaseFileImporter(IsActiveModel, TrackedModel, ImportStatusModel):
     def acknowledged(self, value):
         self.file_import_attempts.update(acknowledged=value)
 
+    @property
+    def is_active(self):
+        """FI is active as long as any of its import attempts are still active"""
+        return self.model_import_attempts.filter(is_active=True).exists()
 
-class AbstractBaseFileImportAttempt(IsActiveModel, TrackedModel, ImportStatusModel):
+
+class AbstractBaseFileImportAttempt(TrackedModel, ImportStatusModel):
     """Represents an individual attempt at an import of a "batch" of Importers"""
 
     file_importer = NotImplemented
@@ -220,19 +225,11 @@ class AbstractBaseFileImportAttempt(IsActiveModel, TrackedModel, ImportStatusMod
             self.file_importer.last_imported_path = self.imported_from
             self.file_importer.save()
         if propagate_status and self.file_import_batch:
-            need_save = False
             if (
                 self.STATUSES[self.status]
                 > self.STATUSES[self.file_import_batch.status]
             ):
                 self.file_import_batch.status = self.status
-                need_save = True
-
-            if not self.is_active:
-                self.file_import_batch.is_active = False
-                need_save = True
-
-            if need_save:
                 self.file_import_batch.save()
 
         super().save(*args, **kwargs)
@@ -245,9 +242,6 @@ class AbstractBaseFileImportAttempt(IsActiveModel, TrackedModel, ImportStatusMod
     @transaction.atomic
     def delete_imported_models(self):
         """Delete all models imported by this FIA"""
-
-        self.is_active = False
-        self.save()
 
         num_deletions = 0
         deletions = Counter()
@@ -279,6 +273,11 @@ class AbstractBaseFileImportAttempt(IsActiveModel, TrackedModel, ImportStatusMod
     def get_field_maps_used_during_import(self):
         form_maps = self.get_field_maps_used_during_import()
         return {form_map.get_name(): form_map.field_maps for form_map in form_maps}
+
+    @property
+    def is_active(self):
+        """FIA is active as long as any of its import attempts are still active"""
+        return self.model_import_attempts.filter(is_active=True).exists()
 
 
 class AbstractBaseModelImportAttempt(IsActiveModel, TrackedModel, ImportStatusModel):
@@ -341,7 +340,6 @@ class AbstractBaseModelImportAttempt(IsActiveModel, TrackedModel, ImportStatusMo
             self.status = ImportStatusModel.STATUSES.created_clean.name
 
         if propagate_status and self.file_import_attempt:
-            need_save = False
             if (
                 self.STATUSES[self.status]
                 > self.STATUSES[self.file_import_attempt.status]
@@ -350,13 +348,6 @@ class AbstractBaseModelImportAttempt(IsActiveModel, TrackedModel, ImportStatusMo
                 #     f"Set FIA status from {self.file_import_attempt.status} to {self.status}"
                 # )
                 self.file_import_attempt.status = self.status
-                need_save = True
-
-            if not self.is_active:
-                self.file_import_attempt.is_active = False
-                need_save = True
-
-            if need_save:
                 self.file_import_attempt.save()
 
         super().save(*args, **kwargs)
