@@ -63,7 +63,7 @@ class RowData(models.Model):
     #     return self.import_attempts.filter(status="rejected").exists()
 
 
-class AbstractBaseFileImportBatch(IsActiveModel, TrackedModel, ImportStatusModel):
+class AbstractBaseFileImportBatch(TrackedModel, ImportStatusModel):
     command = models.CharField(max_length=64, default=None)
     args = ArrayField(models.CharField(max_length=256))
     kwargs = JSONField()
@@ -106,12 +106,14 @@ class AbstractBaseFileImportBatch(IsActiveModel, TrackedModel, ImportStatusModel
     def __str__(self):
         return self.cli
 
+    @property
+    def is_active(self):
+        """FIB is active as long as ny of its import attempts are still active"""
+        return self.file_import_attempts.filter(is_active=True).exists()
+
     @transaction.atomic
     def delete_imported_models(self):
         """Delete all models imported by this FIB"""
-
-        self.is_active = False
-        self.save()
 
         total_num_fia_deletions = 0
         total_num_mia_deletions = 0
