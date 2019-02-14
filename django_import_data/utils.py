@@ -1,7 +1,7 @@
 from enum import Enum
 
 from django.core.serializers.json import DjangoJSONEncoder
-from django.contrib.gis.geos import GEOSGeometry
+from django.contrib.gis.geos import Point
 
 
 class OrderedEnum(Enum):
@@ -17,9 +17,15 @@ class OrderedEnum(Enum):
 
 class DjangoErrorJSONEncoder(DjangoJSONEncoder):
     def default(self, obj):
+        from django.contrib.gis.db.backends.postgis.models import PostGISSpatialRefSys
+
         # GEOSGeometry isn't an error, but still should be serialized as a string
-        if isinstance(obj, (Exception, GEOSGeometry)):
+        if isinstance(obj, Exception):
             return repr(obj)
+        if isinstance(obj, Point):
+            return repr(obj.coords)
+        if isinstance(obj, PostGISSpatialRefSys):
+            return obj.srid
 
         return super().default(obj)
 

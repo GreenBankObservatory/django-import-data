@@ -166,7 +166,6 @@ class BaseImportCommand(BaseCommand):
         if rows_to_process:
             return [records[index] for index in rows_to_process]
 
-        tqdm.write(f"Slice: ({start_index}, {end_index})")
         sliced = records[start_index:end_index]
         num_sliced = len(sliced)
 
@@ -350,7 +349,7 @@ class BaseImportCommand(BaseCommand):
             # TODO: Make status an int in the DB so we can do calcs easier
             if errors:
                 error_str = (
-                    f"Row {ri} handled, but had {len(errors)} errors:\n"
+                    f"Row {ri} of file {os.path.basename(path)} handled, but had {len(errors)} errors:\n"
                     f"{json.dumps(errors, indent=2)}"
                 )
                 if options["durable"]:
@@ -419,18 +418,22 @@ class BaseImportCommand(BaseCommand):
                         error_summary[attribute]["form_errors"]["fields"].append(
                             form_error["field"]
                         )
-        tqdm.write("=" * 80)
-        tqdm.write("Model Import Summary:")
-        for creation in creations:
-            tqdm.write("Created {creation_count} {model} objects".format(**creation))
-        tqdm.write("-" * 80)
-        tqdm.write("Error Summary:")
-        tqdm.write(pformat(error_summary))
-        tqdm.write(
-            f"  Encountered {total_form_errors + total_conversion_errors} total errors "
-            f"across {len(error_summary)} attribute(s):"
-        )
-        tqdm.write("=" * 80)
+        if self.verbosity == 3:
+            tqdm.write("=" * 80)
+            tqdm.write("Model Import Summary:")
+            for creation in creations:
+                tqdm.write(
+                    "Created {creation_count} {model} objects".format(**creation)
+                )
+            tqdm.write("-" * 80)
+        if error_summary and self.verbosity > 1:
+            tqdm.write("Error Summary:")
+            tqdm.write(pformat(error_summary))
+            tqdm.write(
+                f"  Encountered {total_form_errors + total_conversion_errors} total errors "
+                f"across {len(error_summary)} attribute(s):"
+            )
+            tqdm.write("=" * 80)
         for attribute, attribute_errors in error_summary.items():
             tqdm.write(f"    {attribute} had {len(attribute_errors)} type(s) of error:")
             for error_type, errors_of_type in attribute_errors.items():
@@ -451,7 +454,8 @@ class BaseImportCommand(BaseCommand):
         )
         file_import_attempts = []
         for path in files_to_process:
-            tqdm.write(f"Processing {path}")
+            if self.verbosity == 3:
+                tqdm.write(f"Processing {path}")
             file_import_attempts.append(
                 self.handle_file(path, file_import_batch, **options)
             )
@@ -480,6 +484,7 @@ class BaseImportCommand(BaseCommand):
         tqdm.write("=" * 80)
 
     def handle(self, *args, **options):
+        self.verbosity = options["verbosity"]
         files_to_process = self.determine_files_to_process(
             options["paths"], pattern=options["pattern"]
         )

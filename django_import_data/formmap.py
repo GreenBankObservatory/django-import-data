@@ -28,12 +28,15 @@ class FormMap:
     form_class = NotImplemented
     importer_class = NotImplemented
     form_defaults = {}
+    # TODO: This SHOULD NOT be here. I need to subclass inside of NRQZ Admin
+    excluded_form_fields = {"is_active", "id", "data_source", "slug"}
 
     def __init__(
         self,
         form_kwargs=None,
         check_every_render_for_errors=False,
         check_for_overloaded_to_fields=True,
+        allow_fields_in_form_map_but_not_in_form=False,
     ):
         if form_kwargs:
             self.form_kwargs = form_kwargs
@@ -73,6 +76,11 @@ class FormMap:
                     "The following to_fields are mapped to by multiple FieldMaps!\n"
                     f"{pformat(overloaded_to_fields)}"
                 )
+
+        self.check_that_all_model_fields_are_in_form(
+            allow_fields_in_form_map_but_not_in_form
+        )
+        self.check_that_all_form_map_fields_are_in_form()
 
     def render_dict(self, data, allow_unknown=True):
         rendered = {}
@@ -174,7 +182,6 @@ class FormMap:
             return (None, None)
 
         useful_form_errors = get_useful_form_errors(form)
-
         all_errors = {}
         if conversion_errors:
             all_errors["conversion_errors"] = conversion_errors
@@ -190,8 +197,13 @@ class FormMap:
                 row_data=row_data,
             )
             instance = form.save(commit=False)
+            if "original_pk" in form.data:
+                instance.pk = form.data["original_pk"]
             instance.model_import_attempt = model_import_attempt
             instance.save()
+            instance.refresh_from_db()
+            if "original_pk" in form.data:
+                assert instance.id == form.data["original_pk"], "Aw man"
             return instance, model_import_attempt
 
         model_import_attempt = ModelImportAttempt.objects.create_for_model(
@@ -309,6 +321,66 @@ class FormMap:
             for to_field, field_maps in to_field_to_containing_field_maps.items()
             if len(field_maps) > 1 and to_field not in ignored
         }
+
+    def check_that_all_model_fields_are_in_form(
+        self, allow_fields_in_form_map_but_not_in_form=False
+    ):
+        fields_in_model_but_not_in_form = self.get_fields_in_model_but_not_in_form()
+        if fields_in_model_but_not_in_form:
+            error_str = (
+                f"{len(fields_in_model_but_not_in_form)} fields exist "
+                f"in {self.form_class.Meta.model} but not in {self.form_class.__name__}: "
+                f"{fields_in_model_but_not_in_form}"
+            )
+            if allow_fields_in_form_map_but_not_in_form:
+                tqdm.write(f"WARNING: {error_str}")
+            else:
+                raise ValueError(error_str)
+
+    def get_fields_in_model_but_not_in_form(self):
+        if not self.form_class:
+            return []
+
+        fields_in_form = set(self.form_class.Meta.fields)
+        fields_in_model = set(
+            f.name
+            for f in self.form_class.Meta.model._meta.fields
+            if f.editable and not f.is_relation
+        )
+
+        fields_in_model_but_not_in_form = [
+            field
+            for field in fields_in_model.difference(fields_in_form)
+            if field not in self.excluded_form_fields
+        ]
+        return fields_in_model_but_not_in_form
+
+    def check_that_all_form_map_fields_are_in_form(self):
+        """Ensure that all known to fields are mapped in our form class
+
+        If this is not true, we will have silent failures, because any fields
+        not in the form will not make it into the database"""
+        fields_in_form_map_but_not_in_form = (
+            self.get_fields_in_form_map_but_not_in_form()
+        )
+        if fields_in_form_map_but_not_in_form:
+            raise ValueError(
+                f"{len(fields_in_form_map_but_not_in_form)} fields "
+                f"are defined for {type(self)}, but are not defined in its form ({self.form_class.__name__})! "
+                f"{fields_in_form_map_but_not_in_form}"
+            )
+
+    def get_fields_in_form_map_but_not_in_form(self):
+        if not self.form_class:
+            return []
+
+        fields_in_form = set(self.form_class.Meta.fields)
+
+        known_to_fields = self.get_known_to_fields()
+        fields_in_form_map_but_not_in_form = known_to_fields.difference(
+            set(fields_in_form)
+        )
+        return fields_in_form_map_but_not_in_form
 
     def as_mermaid(self, *args, **kwargs):
         return render_form_map_as_mermaid(self, *args, **kwargs)
