@@ -280,9 +280,10 @@ class BaseImportCommand(BaseCommand):
             "created_on"
         ).last()
         if previous_file_import_attempt:
-            tqdm.write(
-                f"Previous FIA found; deleting it: {previous_file_import_attempt}"
-            )
+            if self.verbosity > 2:
+                tqdm.write(
+                    f"Previous FIA found; deleting it: {previous_file_import_attempt}"
+                )
             if not options["overwrite"]:
                 raise ValueError(
                     f"Found previous File Import Attempt '{previous_file_import_attempt}', "
@@ -291,7 +292,8 @@ class BaseImportCommand(BaseCommand):
             num_deletions, deletions = (
                 previous_file_import_attempt.delete_imported_models()
             )
-            tqdm.write(f"Deleted {num_deletions} models:\n{pformat(deletions)}")
+            if self.verbosity > 2:
+                tqdm.write(f"Deleted {num_deletions} models:\n{pformat(deletions)}")
 
         file_level_info, file_level_errors = self.file_level_checks(rows)
         if file_level_errors and not options["durable"]:
