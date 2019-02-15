@@ -67,6 +67,7 @@ class AbstractBaseFileImportBatch(TrackedModel, ImportStatusModel):
     command = models.CharField(max_length=64, default=None)
     args = ArrayField(models.CharField(max_length=256))
     kwargs = JSONField()
+    errors = JSONField(null=True, default=dict)
 
     @cached_property
     def cli(self):

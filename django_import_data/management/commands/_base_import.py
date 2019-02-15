@@ -265,6 +265,7 @@ class BaseImportCommand(BaseCommand):
         if not rows:
             tqdm.write(f"No rows found in {path}; skipping")
             return None
+
         FileImporter = apps.get_model("django_import_data.FileImporter")
         FileImportAttempt = apps.get_model("django_import_data.FileImportAttempt")
         RowData = apps.get_model("django_import_data.RowData")
@@ -458,15 +459,15 @@ class BaseImportCommand(BaseCommand):
         for path in files_to_process:
             if self.verbosity == 3:
                 tqdm.write(f"Processing {path}")
-            file_import_attempts.append(
-                self.handle_file(path, file_import_batch, **options)
-            )
-        return file_import_attempts
+            self.handle_file(path, file_import_batch, **options)
+        return file_import_batch
 
-    def post_import_checks(self, file_import_attempts):
+    def post_import_checks(self, file_import_batch):
         tqdm.write("All File-Level Errors")
         all_file_errors = [
-            fia.errors for fia in file_import_attempts if fia and fia.errors
+            fia.errors
+            for fia in file_import_batch.file_import_attempts.all()
+            if fia and fia.errors
         ]
 
         unique_file_error_types = set(
@@ -482,6 +483,11 @@ class BaseImportCommand(BaseCommand):
             ]
             unique_errors = set(error for errors in errors_by_file for error in errors)
             all_unique_errors[error_type] = unique_errors
+
+        file_import_batch.errors = {
+            key: list(value) for key, value in all_unique_errors.items()
+        }
+        file_import_batch.save()
         tqdm.write(pformat(all_unique_errors))
         tqdm.write("=" * 80)
 
@@ -503,20 +509,13 @@ class BaseImportCommand(BaseCommand):
             files_to_process = tqdm(files_to_process, desc=self.help, unit="files")
 
         if options["no_transaction"]:
-            file_import_attempts = self.handle_files(files_to_process, **options)
+            file_import_batch = self.handle_files(files_to_process, **options)
         else:
             with transaction.atomic():
-                file_import_attempts = self.handle_files(files_to_process, **options)
+                file_import_batch = self.handle_files(files_to_process, **options)
 
                 if options["dry_run"]:
                     transaction.set_rollback(True)
                     tqdm.write("DRY RUN; rolling back changes")
 
-        self.post_import_checks(file_import_attempts)
-
-    def as_mermaid(self):
-        mermaid_str = ""
-        for form_map in self.FORM_MAPS:
-            mermaid = form_map.as_mermaid(orientation=None)
-            mermaid_str += f"<h3>{form_map.get_name()}</h3>{mermaid}\n"
-        return f"graph LR\n{mermaid_str}"
+        self.post_import_checks(file_import_batch)
