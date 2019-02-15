@@ -259,19 +259,17 @@ class FieldMap:
                 try:
                     converted = converter(**ret)
                 except TypeError as error:
-                    argspec = getfullargspec(converter)
-                    raise TypeError(
-                        f"Converter {converter.__name__} (args: {argspec.args}) rejected args: {list(ret)}"
-                    ) from error
+                    if "argument" in str(error):
+                        argspec = getfullargspec(converter)
+                        raise TypeError(
+                            f"Converter {converter.__name__} (args: {argspec.args}) rejected args: {list(ret)}"
+                        ) from error
                 if not isinstance(converted, dict):
                     return {to_field: converted}
                 return converted
 
             from_field_value = next(iter(ret.values()))
-            try:
-                return {to_field: converter(from_field_value)}
-            except TypeError as error:
-                raise  # ValueError("Unmapped headers!") from error
+            return {to_field: converter(from_field_value)}
 
         # For all other cases, expect the converter to be smart enough
         try:
@@ -457,10 +455,11 @@ class ManyToOneFieldMap(FieldMap):
         try:
             converted = converter(**ret)
         except TypeError as error:
-            argspec = getfullargspec(converter)
-            raise TypeError(
-                f"Converter {converter.__name__} ({argspec.args}) rejected args: {list(ret)}"
-            ) from error
+            if "argument" in str(error):
+                argspec = getfullargspec(converter)
+                raise TypeError(
+                    f"Converter {converter.__name__} ({argspec.args}) rejected args: {list(ret)}"
+                ) from error
 
         if not isinstance(converted, dict):
             return {to_field: converted}
