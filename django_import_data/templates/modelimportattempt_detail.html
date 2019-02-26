@@ -7,11 +7,14 @@
 
 <h1>{{ modelimportattempt }}</h1>
 
+<p>Imported from row {{ modelimportattempt.row_data.row_num }} of file: {{ modelimportattempt.file_import_attempt.imported_from }} by importer {{ modelimportattempt.file_import_attempt.imported_by }}</p>
+
 {% if not modelimportattempt.importee %}
 <p><a href={{ modelimportattempt.get_create_from_import_attempt_url }}>Create {{ modelimportattempt.importee_class | model_name }} from Model Import Attempt {{ modelimportattempt.id }}</a></p>
 {% endif %}
 
-<h2>Original Values</h2>
+<h2>Original Field Values</h2>
+<p>The values passed to the ModelForm</p>
 {{ modelimportattempt.importee_field_data | json | safe }}
 
 <h2>Errors</h2>

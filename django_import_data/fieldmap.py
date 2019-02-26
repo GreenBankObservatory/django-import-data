@@ -16,8 +16,11 @@ from the list of FieldMap instances
 """
 DEFAULT_CONVERTER = None
 DEFAULT_ALLOW_UNKNOWN = True
+DEFAULT_ALLOW_MULTIPLE_ALIASES_FOR_FIELD = False
 
+from collections import defaultdict
 from inspect import getfullargspec
+
 from .mermaid import render_field_map_as_mermaid
 from .utils import to_fancy_str
 
@@ -163,25 +166,6 @@ class FieldMap:
             ")"
         )
 
-        # if len(self.from_fields) > 2 or len(self.to_fields) > 2:
-
-        #     return (
-        #         f"{self.__class__.__name__}(\n"
-        #         f"  from_fields={self.from_fields!r},\n"
-        #         f"  converter={self.converter.__name__},\n"
-        #         f"  to_fields={self.to_fields!r}\n,"
-        #         f"  aliases={self.aliases!r}\n",
-        #         ")",
-        #     )
-
-        # return (
-        #     f"{self.__class__.__name__}("
-        #     f"from_fields={self.from_fields!r}, "
-        #     f"converter={self.converter.__name__}, "
-        #     f"to_fields={self.to_fields!r}, "
-        #     f"aliases={self.aliases!r})"
-        # )
-
     def __str__(self):
         if len(self.from_fields) == 1:
             from_ = "1"
@@ -219,32 +203,59 @@ class FieldMap:
             ]
         return self.from_fields
 
-    def unalias(self, data, allow_unknown=DEFAULT_ALLOW_UNKNOWN):
-        unaliased = {}
-        for field, value in data.items():
-            if field in self.known_fields:
-                # Get the unaliased field, or, if there's no alias, just
-                # use the field name as is
-                field = self.aliases.get(field, field)
-                unaliased[field] = value
+    def unalias(
+        self,
+        data,
+        allow_unknown=DEFAULT_ALLOW_UNKNOWN,
+        allow_multiple_aliases_for_field=DEFAULT_ALLOW_MULTIPLE_ALIASES_FOR_FIELD,
+    ):
+        unaliased_data = {}
+        found_aliases = defaultdict(list)
+        for alias, value in data.items():
+            if alias in self.known_fields:
+                # Get the unaliased alias, or, if there's no alias, just
+                # use the alias name as is
+                unaliased_field = self.aliases.get(alias, alias)
+                found_aliases[unaliased_field].append(alias)
+                unaliased_data[unaliased_field] = value
             else:
                 if not allow_unknown:
                     raise ValueError(
-                        f"Field {field} is not a known field "
+                        f"Field {alias} is not a known field "
                         f"({self.known_fields})! To suppress this error, "
                         "pass allow_unknown=True"
                     )
-        return unaliased
+        if not allow_multiple_aliases_for_field:
+            found_aliases = dict(found_aliases)
+            duplicated_aliases = {
+                field: aliases
+                for field, aliases in found_aliases.items()
+                if len(aliases) > 1
+            }
+            if duplicated_aliases:
+                raise TypeError(
+                    f"More than one alias found in the data: {duplicated_aliases}. "
+                    "This indicates that you probably need to split this FieldMap in two..."
+                )
+        return unaliased_data
 
     # TODO: This has no place here... this should _perhaps_ perform
     # core functionality, but most rendering should now be distributed
     # to child classes
     def render(
-        self, data, converter=DEFAULT_CONVERTER, allow_unknown=DEFAULT_ALLOW_UNKNOWN
+        self,
+        data,
+        converter=DEFAULT_CONVERTER,
+        allow_unknown=DEFAULT_ALLOW_UNKNOWN,
+        allow_multiple_aliases_for_field=DEFAULT_ALLOW_MULTIPLE_ALIASES_FOR_FIELD,
     ):
         if converter is None:
             converter = self.converter
-        ret = self.unalias(data, allow_unknown=allow_unknown)
+        ret = self.unalias(
+            data,
+            allow_unknown=allow_unknown,
+            allow_multiple_aliases_for_field=allow_multiple_aliases_for_field,
+        )
         if not ret:
             # print(f"WARNING: Failed to produce value for {data}")
             return {}
@@ -403,11 +414,19 @@ class OneToOneFieldMap(FieldMap):
         return value
 
     def render(
-        self, data, converter=DEFAULT_CONVERTER, allow_unknown=DEFAULT_ALLOW_UNKNOWN
+        self,
+        data,
+        converter=DEFAULT_CONVERTER,
+        allow_unknown=DEFAULT_ALLOW_UNKNOWN,
+        allow_multiple_aliases_for_field=DEFAULT_ALLOW_MULTIPLE_ALIASES_FOR_FIELD,
     ):
         if converter is None:
             converter = self.converter
-        ret = self.unalias(data, allow_unknown=allow_unknown)
+        ret = self.unalias(
+            data,
+            allow_unknown=allow_unknown,
+            allow_multiple_aliases_for_field=allow_multiple_aliases_for_field,
+        )
         # Handle case where we don't have any mappings (need to bail early
         # to avoid breaking logic below)
         if not ret:
@@ -443,11 +462,19 @@ class ManyToOneFieldMap(FieldMap):
         self.to_field = self.to_fields[0]
 
     def render(
-        self, data, converter=DEFAULT_CONVERTER, allow_unknown=DEFAULT_ALLOW_UNKNOWN
+        self,
+        data,
+        converter=DEFAULT_CONVERTER,
+        allow_unknown=DEFAULT_ALLOW_UNKNOWN,
+        allow_multiple_aliases_for_field=DEFAULT_ALLOW_MULTIPLE_ALIASES_FOR_FIELD,
     ):
         if converter is None:
             converter = self.converter
-        ret = self.unalias(data, allow_unknown=allow_unknown)
+        ret = self.unalias(
+            data,
+            allow_unknown=allow_unknown,
+            allow_multiple_aliases_for_field=allow_multiple_aliases_for_field,
+        )
         # Allow for the existence of converters that don't return
         # {to_field: converted values} dicts, and instead simply return
         # converted values

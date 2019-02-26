@@ -51,14 +51,25 @@ class BaseImportCommand(BaseCommand):
         parser.add_argument(
             "-D", "--durable", action="store_true", help="Continue past record errors"
         )
-        parser.add_argument(
+
+        group = parser.add_mutually_exclusive_group()
+        group.add_argument(
             "--overwrite",
             action="store_true",
             help=(
-                "If a previoius File Import Attempt is detected for one or more "
+                "If a previous File Import Attempt is detected for one or more "
                 "of the given paths, delete and re-create it (overwrite it)"
             ),
         )
+        group.add_argument(
+            "--skip",
+            action="store_true",
+            help=(
+                "If a previous File Import Attempt is detected for one or more "
+                "of the given paths, skip it"
+            ),
+        )
+
         parser.add_argument(
             "-l",
             "--limit",
@@ -254,18 +265,6 @@ class BaseImportCommand(BaseCommand):
         return info, errors
 
     def handle_file(self, path, file_import_batch, **options):
-        try:
-            rows = list(self.load_rows(path))
-        except ValueError as error:
-            if options["durable"]:
-                tqdm.write(str(error))
-            else:
-                raise ValueError("Error loading rows!") from error
-            rows = []
-        if not rows:
-            tqdm.write(f"No rows found in {path}; skipping")
-            return None
-
         FileImporter = apps.get_model("django_import_data.FileImporter")
         FileImportAttempt = apps.get_model("django_import_data.FileImportAttempt")
         RowData = apps.get_model("django_import_data.RowData")
@@ -281,20 +280,43 @@ class BaseImportCommand(BaseCommand):
             "created_on"
         ).last()
         if previous_file_import_attempt:
-            if self.verbosity > 2:
-                tqdm.write(
-                    f"Previous FIA found; deleting it: {previous_file_import_attempt}"
-                )
-            if not options["overwrite"]:
+            if options["overwrite"] or options["skip"]:
+                if options["skip"]:
+                    if self.verbosity > 2:
+                        tqdm.write(
+                            f"SKIPPING previous FIA: {previous_file_import_attempt}"
+                        )
+                    return None
+                else:
+                    if self.verbosity > 2:
+                        tqdm.write(
+                            f"DELETING previous FIA: {previous_file_import_attempt}"
+                        )
+                    num_deletions, deletions = (
+                        previous_file_import_attempt.delete_imported_models()
+                    )
+                    if self.verbosity > 2:
+                        tqdm.write(
+                            f"Deleted {num_deletions} models:\n{pformat(deletions)}"
+                        )
+            else:
                 raise ValueError(
                     f"Found previous File Import Attempt '{previous_file_import_attempt}', "
-                    "but cannot delete it due to presence of overwrite=False!"
+                    "but cannot delete or skip it due to lack of overwrite=True or skip=True!"
                 )
-            num_deletions, deletions = (
-                previous_file_import_attempt.delete_imported_models()
-            )
-            if self.verbosity > 2:
-                tqdm.write(f"Deleted {num_deletions} models:\n{pformat(deletions)}")
+
+        try:
+            rows = list(self.load_rows(path))
+        except ValueError as error:
+            if options["durable"]:
+                tqdm.write(f"ERROR: {error}")
+            else:
+                raise ValueError("Error loading rows!") from error
+            rows = []
+
+        if not rows:
+            tqdm.write(f"No rows found in {path}; skipping")
+            return None
 
         file_level_info, file_level_errors = self.file_level_checks(rows)
         if file_level_errors and not options["durable"]:

@@ -543,7 +543,7 @@ class AbstractBaseAuditedModel(models.Model):
 
     def save(self, *args, **kwargs):
         if (
-            self.model_import_attempt
+            getattr(self, "model_import_attempt", None)
             and self.model_import_attempt.importee_class != self.__class__
         ):
             raise ValueError(

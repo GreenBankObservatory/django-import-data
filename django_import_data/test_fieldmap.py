@@ -268,3 +268,14 @@ class TestOneToOneFieldMap(TestCase):
         actual = field_map.render(data)
         expected = {"foo": data["Bar"]}
         self.assertEqual(actual, expected)
+
+    def test_reject_multiple_alias_matches(self):
+        data = {"Bar": "bar", "Baz": "baz", "Bat": "boo"}
+        field_map = OneToOneFieldMap(from_field={"foo": ("Bar", "Baz")}, to_field="foo")
+        with self.assertRaises(ValueError):
+            field_map.render(data)
+
+        field_map.render(data)
+        actual = field_map.render(data, allow_multiple_aliases_for_field=True)
+        expected = {"foo": "baz"}
+        self.assertEqual(actual, expected)
