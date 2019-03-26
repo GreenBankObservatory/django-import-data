@@ -122,23 +122,25 @@ class BaseImportCommand(BaseCommand):
     @staticmethod
     def determine_files_to_process(paths, pattern=None):
         """Find all files in given paths that match given pattern; sort and return"""
-
-        files = []
+        if pattern:
+            pattern = re.compile(pattern)
+        matched_files = []
         for path in paths:
             if os.path.isfile(path):
-                files.append(path)
+                matched_files.append(path)
             elif os.path.isdir(path):
-                files.extend(
-                    [
-                        os.path.join(path, file)
-                        for file in os.listdir(path)
-                        if not pattern or re.search(pattern, file)
-                    ]
-                )
+                for root, dirs, files in os.walk(path):
+                    matched_files.extend(
+                        [
+                            os.path.join(path, root, file)
+                            for file in files
+                            if not pattern or pattern.match(file)
+                        ]
+                    )
             else:
                 raise ValueError(f"Given path {path!r} is not a directory or file!")
 
-        return sorted(files)
+        return sorted(matched_files)
 
     # TODO: This does NOT HANDLE duplicate headers! Behavior is not well
     # defined, and there WILL BE data loss if there are duplicate headers,
@@ -485,7 +487,7 @@ class BaseImportCommand(BaseCommand):
         return file_import_batch
 
     def post_import_checks(self, file_import_batch):
-        tqdm.write("All File-Level Errors")
+        tqdm.write("All Batch-Level Errors")
         all_file_errors = [
             fia.errors
             for fia in file_import_batch.file_import_attempts.all()
@@ -518,6 +520,9 @@ class BaseImportCommand(BaseCommand):
         files_to_process = self.determine_files_to_process(
             options["paths"], pattern=options["pattern"]
         )
+
+        if not files_to_process:
+            raise ValueError("No files were found!")
 
         if self.PROGRESS_TYPE == self.PROGRESS_TYPES.FILE:
             files_to_process = self.determine_records_to_process(
