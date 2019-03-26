@@ -29,7 +29,8 @@ class FormMap:
     importer_class = NotImplemented
     form_defaults = {}
     # TODO: This SHOULD NOT be here. I need to subclass inside of NRQZ Admin
-    excluded_form_fields = {"is_active", "id", "data_source", "slug"}
+    # TODO: data_source should be ignored in some but not all cases
+    excluded_form_fields = {"is_active", "id", "slug"}
 
     def __init__(
         self,

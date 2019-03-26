@@ -14,7 +14,7 @@
         {% if file_import_batch and current != "file_import_batch" %}
             <a
                 href="{% url 'fileimportbatch_detail' file_import_batch.id %}"
-                title="The batch of files that this was imported alongside"
+                title="The batch of files that a file import attempt was imported within. This will summarize any all file-level errors in a given import batch."
             >
                 File Import Batch
             </a>
@@ -34,7 +34,7 @@
         {% if file_importer  and current != "file_importer" %}
             <a
                 href="{% url 'fileimporter_detail' file_importer.id %}"
-                title="History of every time an attempt has been made to import the file from which this was created"
+                title="History of every time an attempt has been made to import the file from which a model was created."
             >
                 File Import History
             </a>
@@ -54,7 +54,7 @@
         {% if file_import_attempt and current != "file_import_attempt" %}
             <a
                 href="{% url 'fileimportattempt_detail' file_import_attempt.id %}"
-                title="The report of the file import attempt that ultimately created this"
+                title="The report of the file import attempt that ultimately created this. This will show you all errors in the file that a model was created from."
             >
                 File Import Attempt
             </a>
@@ -71,17 +71,17 @@
             class="breadcrumb-item"
             {% endif %}
             {% if row_data %}
-            title="The number of the row from which this was created"
+            title="The original row from which this was created. Use this to determine if there are discrepancies between the data in a model and the data in its original source."
             {% endif %}
         >
         {% if row_data and current != "row_data" %}
             <a
                 href="{% url 'rowdata_detail' row_data.id %}"
             >
-                Row Import
+                Row Import Attempt
             </a>
         {% else %}
-            Row Import
+            Row Import Attempt
         {% endif %}
         </li>
 
