@@ -111,7 +111,7 @@ def make_breadcrumb(item):
         if item.importee:
             context["importee"] = item.importee
         current = "model_import_attempt"
-    elif hasattr(item, "model_import_attempt"):
+    elif getattr(item, "model_import_attempt", None):
         context = {
             "file_import_batch": item.model_import_attempt.file_import_attempt.file_import_batch,
             "file_importer": item.model_import_attempt.file_import_attempt.file_importer,
@@ -122,7 +122,7 @@ def make_breadcrumb(item):
         }
         current = "importee"
     else:
-        raise ValueError(f"Could not process item: {item}")
+        return {}
 
     context["current"] = current
     return context
