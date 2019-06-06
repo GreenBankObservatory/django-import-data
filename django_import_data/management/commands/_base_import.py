@@ -238,6 +238,10 @@ class BaseImportCommand(BaseCommand):
 
         # If some headers don't map to anything, report this as an error
         known_headers = self.get_known_headers()
+        # Get ignored headers, if defined. Default to an empty list for later clarity
+        ignored_headers = getattr(self, "IGNORED_HEADERS", [])
+        info["ignored_headers"] = ignored_headers
+
         info["known_headers"] = known_headers
         unmapped_headers = self.get_unmapped_headers(headers, known_headers)
 
