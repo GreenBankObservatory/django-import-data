@@ -5,14 +5,15 @@
 
 {% make_breadcrumb rowdata %}
 
-<h1>Row Data</h1>
+<h1 title="This is a representation of the EXACT ORIGINAL DATA from a given row">Row Data</h1>
 <p>
-    Row {{ rowdata.row_num }} from <a href="file://{{ rowdata.file_import_attempt.imported_from }}">{{ rowdata.file_import_attempt.name }}</a>
+    Row {{ rowdata.row_num }} from <a href="file://{{ rowdata.file_import_attempt.imported_from }}">{{ rowdata.file_import_attempt.imported_from }}</a>
 </p>
 
 
 {{ rowdata.data | json | safe }}
 
+<h2 title="An ATTEMPT to import the following models was made, using the data in the above row">Models Import Attempts</h2>
 {% include "list_base.html" with object_list=rowdata.model_import_attempts.all %}
 
 <h2>Row-Level Errors</h2>
