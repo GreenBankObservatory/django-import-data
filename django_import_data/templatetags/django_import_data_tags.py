@@ -89,7 +89,7 @@ def make_breadcrumb(item):
         context = {
             "file_import_batch": item.file_import_batch,
             "file_importer": item.file_importer,
-            "file_importer": item,
+            "file_import_attempt": item,
         }
         current = "file_import_attempt"
     elif isinstance(item, RowData):
