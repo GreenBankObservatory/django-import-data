@@ -1,0 +1,51 @@
+{% extends "cases/base.html" %}
+
+{% block content %}
+
+<h1>Files That Have Changed Since Import</h1>
+<p>Last checked {{ file_importer.file_path }} on {{ last_hash_check }}</p>
+<p>Shows all files that have had their contents or path changed. That is, files in which the hash has changed, or that have been deleted/moved.</p>
+<form method="POST">{% csrf_token %}
+    <table class="table">
+        <tr>
+            <th title="Select for re-import">Re-import</th>
+            <th title="The full path of the file on disk">Path</th>
+            <th title="Hash of the file when it was imported">Hash at Import</th>
+            <th title="Hash of the file when it was last checked">Hash on Disk</th>
+            <th title="The time at which the file was last modified on disk">Last Modified</th>
+            <th title="The time at which an attempt was last made to import the file">Last Imported On</th>
+            <th title="The time at which this file was last checked for differences">Last Checked On</th>
+        </tr>
+    {% if files_changed_since_import %}
+        {% for fi in files_changed_since_import %}
+            <tr>
+                <td><input type="checkbox" name="file_importer_{{ fi.id }}"></td>
+                <td title="{{ fi.file_path }}"><a href="{% url 'fileimporter_detail' fi.id %}">{{ fi.name }}</a></td>
+                {% if fi.latest_file_import_attempt.hash_when_imported %}
+                <td title="{{ fi.latest_file_import_attempt.hash_when_imported }}">…{{ fi.latest_file_import_attempt.hash_when_imported|slice:"-8:" }}</td>
+                {% else %}
+                <td><b style="color: red" title="File was missing on previous import attempt. Go to the File Import Detail page to resolve this">File missing!</b></td>
+                {% endif %}
+                <td title="{{ fi.hash_on_disk }}">
+                    {% if fi.hash_on_disk == "" %}
+                    <b style="color: red" title="Go to the File Import Detail page to resolve this">File missing!</b>
+                    {% elif fi.hash_on_disk != fi.latest_file_import_attempt.hash_when_imported %}
+                    <b style="color: red">…{{ fi.hash_on_disk|slice:"-8:" }}</b>
+                    {% else %}
+                    …{{ fi.hash_on_disk|slice:"-8:" }}
+                    {% endif %}
+                </td>
+                <td>{{ fi.file_modified_on }}</td>
+                <td>{{ fi.latest_file_import_attempt.created_on }}</td>
+                <td>{{ fi.hash_checked_on }}</td>
+            </tr>
+        {% endfor %}
+    {% endif %}
+    </table>
+    {% if not files_changed_since_import %}
+    <p>No files have diverged from their state on the filesystem</p>
+    {% endif %}
+    <input type="submit" name="submit_reimport" value="Re-import Files" title="Import selected files, or import all above if none are selected">
+    <input type="submit" name="submit_refresh_from_filesystem" value="Re-check All Files" title="Refresh file data from the file system. This checks ALL known files, not just the above, and might take a long time!">
+</form>
+{% endblock %}

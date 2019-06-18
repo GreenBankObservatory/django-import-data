@@ -224,7 +224,7 @@ class TestSanity(TestCase):
             path=path
         )
         self.assertIsNotNone(file_importer)
-        self.assertEqual(file_importer.last_imported_path, path)
+        self.assertEqual(file_importer.latest_file_import_attempt.imported_from, path)
         self.assertIsNotNone(file_import_attempt)
         self.assertEqual(file_import_attempt.imported_from, path)
 

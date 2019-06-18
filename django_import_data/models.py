@@ -18,7 +18,7 @@ from django.utils.functional import cached_property
 
 from .mixins import IsActiveModel, ImportStatusModel, TrackedModel
 from .utils import DjangoErrorJSONEncoder
-
+from .managers import ModelImportAttemptManager, FileImporterManager
 
 ### ABSTRACT BASE CLASSES ###
 class RowData(models.Model):
@@ -130,26 +130,39 @@ class AbstractBaseFileImportBatch(TrackedModel, ImportStatusModel):
         return (total_num_fia_deletions, total_num_mia_deletions, all_mia_deletions)
 
     @transaction.atomic
-    def reimport(self):
+    def reimport(self, paths=None):
         """Delete then reimport all models imported by this FIB"""
-
+        if paths is not None:
+            args = paths
+        else:
+            args = self.args
         num_fias_deleted, num_models_deleted, deletions = self.delete_imported_models()
         print(num_fias_deleted, num_models_deleted, deletions)
-        call_command(self.command, *self.args, **{**self.kwargs, "overwrite": True})
+        call_command(self.command, *args, **{**self.kwargs, "overwrite": True})
         return FileImportBatch.objects.first()
 
 
 class AbstractBaseFileImporter(TrackedModel, ImportStatusModel):
     """Representation of all attempts to import a specific file"""
 
-    # TODO: Reconsider unique
-    # TODO: Reconsider existence -- if cached_property used then this wouldn't be needed?
-    last_imported_path = models.CharField(
-        max_length=512, unique=True, help_text="Path to imported file"
+    file_path = models.CharField(
+        max_length=512,
+        default=None,
+        help_text="Path to the file that this imports",
+        unique=True,
     )
     importer_name = models.CharField(
         max_length=128, default=None, help_text="The name of the Importer to use"
     )
+    hash_on_disk = models.CharField(
+        max_length=40,
+        unique=True,
+        null=True,
+        blank=True,
+        help_text="SHA-1 hash of the file on disk. If blank, the file is missing",
+    )
+    file_modified_on = models.DateTimeField(null=True, blank=True)
+    hash_checked_on = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         abstract = True
@@ -158,12 +171,12 @@ class AbstractBaseFileImporter(TrackedModel, ImportStatusModel):
         return f"File Importer for {self.name}"
 
     @property
-    def most_recent_import(self):
+    def latest_file_import_attempt(self):
         return self.file_import_attempts.order_by("created_on").last()
 
-    @cached_property
+    @property
     def name(self):
-        return os.path.basename(self.last_imported_path)
+        return os.path.basename(self.file_path)
 
     @property
     def acknowledged(self):
@@ -179,6 +192,22 @@ class AbstractBaseFileImporter(TrackedModel, ImportStatusModel):
     def is_active(self):
         """FI is active as long as any of its import attempts are still active"""
         return self.model_import_attempts.filter(is_active=True).exists()
+
+    def reimport(self):
+        return call_command(
+            self.importer_name,
+            self.latest_file_import_attempt.imported_from,
+            overwrite=True,
+            durable=True,
+        )
+
+    @property
+    def file_missing(self):
+        return self.hash_on_disk == ""
+
+    @property
+    def file_changed(self):
+        return self.hash_on_disk != self.latest_file_import_attempt.hash_when_imported
 
 
 class AbstractBaseFileImportAttempt(TrackedModel, ImportStatusModel):
@@ -211,6 +240,7 @@ class AbstractBaseFileImportAttempt(TrackedModel, ImportStatusModel):
         blank=True,
         help_text="Headers that were ignored during import",
     )
+    hash_when_imported = models.CharField(max_length=40, blank=True)
 
     class Meta:
         abstract = True
@@ -219,11 +249,13 @@ class AbstractBaseFileImportAttempt(TrackedModel, ImportStatusModel):
         return f"{self.name}: {self.get_status_display()}"
 
     def save(self, *args, propagate_status=True, **kwargs):
+        print("errors", self.errors)
         if self.status == "created_clean" and self.errors:
             self.status = "created_dirty"
+        elif "misc" in self.errors and "file_missing" in self.errors["misc"]:
+            self.status = "rejected"
         if propagate_status and self.file_importer:
             self.file_importer.status = self.status
-            self.file_importer.last_imported_path = self.imported_from
             self.file_importer.save()
         if propagate_status and self.file_import_batch:
             if (
@@ -234,6 +266,7 @@ class AbstractBaseFileImportAttempt(TrackedModel, ImportStatusModel):
                 self.file_import_batch.save()
 
         super().save(*args, **kwargs)
+        print("wtf", self.status)
 
     @cached_property
     def name(self):
@@ -423,15 +456,6 @@ class FileImportBatch(AbstractBaseFileImportBatch):
         ordering = ["-created_on"]
 
 
-class FileImporterManager(models.Manager):
-    def create_with_attempt(self, path, errors=None):
-        fi = self.create(last_imported_path=path)
-        fia = FileImportAttempt.objects.create(
-            imported_from=path, file_importer=fi, errors=errors
-        )
-        return fi, fia
-
-
 class FileImporter(AbstractBaseFileImporter):
     objects = FileImporterManager()
 
@@ -463,13 +487,6 @@ class FileImportAttempt(AbstractBaseFileImportAttempt):
 
     def get_absolute_url(self):
         return reverse("fileimportattempt_detail", args=[str(self.id)])
-
-
-class ModelImportAttemptManager(models.Manager):
-    def create_for_model(self, model, **kwargs):
-        return self.create(
-            content_type=ContentType.objects.get_for_model(model), **kwargs
-        )
 
 
 class ModelImportAttempt(AbstractBaseModelImportAttempt):

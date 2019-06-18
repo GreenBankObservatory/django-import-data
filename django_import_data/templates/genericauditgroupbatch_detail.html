@@ -7,7 +7,7 @@
 
 {{ object.status }}
 
-<p><a href=file://{{ object.last_imported_path }}>Open original file: {{object.name}}</a></p>
+<p><a href="file://{{ object.latest_file_import_attempt.imported_from }}">Open original file: {{object.name}}</a></p>
 
 <h2>Imports</h2>
 {% include "list_base.html" with object_list=object.imports.all %}

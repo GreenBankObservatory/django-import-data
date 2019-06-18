@@ -1,5 +1,6 @@
 """Provides BaseImportCommand: an abstract class for creating Importers"""
 
+from datetime import datetime
 from pprint import pformat
 import csv
 from enum import Enum
@@ -11,9 +12,12 @@ import re
 from django.apps import apps
 from django.core.management.base import BaseCommand
 from django.db import transaction
-from django.db.models import Count, F
+from django.db.models import Count, F, Q
+from django.utils import timezone
 
 from tqdm import tqdm
+
+from django_import_data.utils import hash_file
 
 
 class BaseImportCommand(BaseCommand):
@@ -279,27 +283,61 @@ class BaseImportCommand(BaseCommand):
         # existing Batch in the DB. Allow explicit Batch ID to be passed in?
         # Some other unique ID?
         current_command = self.__module__.split(".")[-1]
-        file_importer, file_importer_created = FileImporter.objects.get_or_create(
-            last_imported_path=path, importer_name=current_command
+        try:
+            file_modified_on = timezone.make_aware(
+                datetime.fromtimestamp(os.path.getmtime(path))
+            )
+            hash_on_disk = hash_file(path)
+        except FileNotFoundError:
+            file_modified_on = None
+            hash_on_disk = ""
+
+        hash_checked_on = timezone.now()
+        # Check by both hash and file path. These should typically point
+        # to the same file, but if either:
+        # * a file has been renamed
+        # * a file has changed
+        # since last import, then they might not
+        existing_file_importers = FileImporter.objects.filter(
+            Q(hash_on_disk=hash_on_disk) | Q(file_path=path)
         )
-        previous_file_import_attempt = file_importer.file_import_attempts.order_by(
-            "created_on"
-        ).last()
-        if previous_file_import_attempt:
+        num_file_importers_found = existing_file_importers.count()
+        if num_file_importers_found == 1:
+            file_importer = existing_file_importers.first()
+            file_importer_created = False
+            file_importer.hash_on_disk = hash_on_disk
+            file_importer.hash_checked_on = hash_checked_on
+            file_importer.save()
+        elif num_file_importers_found == 0:
+            file_importer = FileImporter.objects.create(
+                file_path=path,
+                importer_name=current_command,
+                file_modified_on=file_modified_on,
+                hash_on_disk=hash_on_disk,
+                hash_checked_on=hash_checked_on,
+            )
+            file_importer_created = True
+        else:
+            raise ValueError("NOT GOOD; REEVALUATE LOGIC")
+
+        tqdm.write(f"{file_importer} created? {file_importer_created}")
+
+        latest_file_import_attempt = file_importer.latest_file_import_attempt
+        if latest_file_import_attempt:
             if options["overwrite"] or options["skip"]:
                 if options["skip"]:
                     if self.verbosity > 2:
                         tqdm.write(
-                            f"SKIPPING previous FIA: {previous_file_import_attempt}"
+                            f"SKIPPING previous FIA: {latest_file_import_attempt}"
                         )
                     return None
                 else:
                     if self.verbosity > 2:
                         tqdm.write(
-                            f"DELETING previous FIA: {previous_file_import_attempt}"
+                            f"DELETING previous FIA: {latest_file_import_attempt}"
                         )
                     num_deletions, deletions = (
-                        previous_file_import_attempt.delete_imported_models()
+                        latest_file_import_attempt.delete_imported_models()
                     )
                     if self.verbosity > 2:
                         tqdm.write(
@@ -307,27 +345,24 @@ class BaseImportCommand(BaseCommand):
                         )
             else:
                 raise ValueError(
-                    f"Found previous File Import Attempt '{previous_file_import_attempt}', "
+                    f"Found previous File Import Attempt '{latest_file_import_attempt}', "
                     "but cannot delete or skip it due to lack of overwrite=True or skip=True!"
                 )
 
         try:
             rows = list(self.load_rows(path))
-        except ValueError as error:
+        except (FileNotFoundError, ValueError) as error:
             if options["durable"]:
                 tqdm.write(f"ERROR: {error}")
             else:
                 raise ValueError("Error loading rows!") from error
             rows = []
 
-        if not rows:
-            tqdm.write(f"No rows found in {path}; skipping")
-            return None
-
         file_level_info, file_level_errors = self.file_level_checks(rows)
+        if not os.path.isfile(path):
+            file_level_errors["misc"] = ["file_missing"]
         if file_level_errors and not options["durable"]:
             raise ValueError(f"One or more file-level errors: {file_level_errors}")
-
         file_import_attempt = FileImportAttempt.objects.create(
             file_import_batch=file_import_batch,
             file_importer=file_importer,
@@ -335,8 +370,8 @@ class BaseImportCommand(BaseCommand):
             info=file_level_info,
             errors=file_level_errors,
             imported_by=self.__module__,
+            hash_when_imported=hash_on_disk,
         )
-
         if self.PROGRESS_TYPE == self.PROGRESS_TYPES.ROW:
             rows_to_process = options.get("rows", None)
             limit = options.get("limit", None)
@@ -483,11 +518,12 @@ class BaseImportCommand(BaseCommand):
         file_import_batch = FileImportBatch.objects.create(
             command=current_command, args=paths, kwargs=options
         )
-        file_import_attempts = []
         for path in files_to_process:
             if self.verbosity == 3:
                 tqdm.write(f"Processing {path}")
-            self.handle_file(path, file_import_batch, **options)
+            file_import_attempt = self.handle_file(path, file_import_batch, **options)
+            assert file_import_attempt is not None
+
         return file_import_batch
 
     def post_import_checks(self, file_import_batch):
@@ -521,12 +557,23 @@ class BaseImportCommand(BaseCommand):
 
     def handle(self, *args, **options):
         self.verbosity = options["verbosity"]
-        files_to_process = self.determine_files_to_process(
-            options["paths"], pattern=options["pattern"]
-        )
+        try:
+            files_to_process = self.determine_files_to_process(
+                options["paths"], pattern=options["pattern"]
+            )
+        except ValueError as error:
+            if options["durable"]:
+                tqdm.write(f"ERROR: {error}")
+                files_to_process = options["paths"]
+            else:
+                raise
 
         if not files_to_process:
-            raise ValueError("No files were found!")
+            if options["durable"]:
+                tqdm.write(f"ERROR: No files were found!")
+                files_to_process = []
+            else:
+                raise ValueError("No files were found!")
 
         if self.PROGRESS_TYPE == self.PROGRESS_TYPES.FILE:
             files_to_process = self.determine_records_to_process(

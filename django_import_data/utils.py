@@ -1,4 +1,5 @@
 from enum import Enum
+import hashlib
 
 from django.core.serializers.json import DjangoJSONEncoder
 from django.contrib.gis.geos import Point
@@ -45,3 +46,15 @@ def to_fancy_str(iterable, quote=False):
     else:
         l = [stringifier(item) for item in iterable]
         return f"{', '.join(l[:-1])}, and {l[-1]}"
+
+
+def hash_file(path):
+    sha1 = hashlib.sha1()
+    with open(path, "rb") as file:
+        while True:
+            data = file.read(65536)
+            if data:
+                sha1.update(data)
+            else:
+                break
+    return sha1.hexdigest()

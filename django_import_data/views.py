@@ -1,15 +1,15 @@
 from django.contrib import messages
 from django.http import HttpResponseRedirect
-from django.shortcuts import get_object_or_404, redirect
-from django.views.generic import CreateView
+from django.shortcuts import get_object_or_404, redirect, render
+from django.views.generic import CreateView, FormView
 from django.views.generic.detail import DetailView
 from django.views.generic.list import ListView
 
 from .models import (
     ModelImportAttempt,
-    # ModelImporter,
     FileImporter,
     FileImportAttempt,
+    FileImportBatch,
     RowData,
 )
 
@@ -102,5 +102,84 @@ class FileImportAttemptDetailView(DetailView):
 
 class FileImporterCreateView(CreateView):
     model = FileImporter
-    fields = ("last_imported_path", "importer_name")
+    fields = "importer_name"
     template_name = "fileimporter_form.html"
+
+
+def changed_files_view(request):
+    def do_reimport(post):
+        ids = [int(fi_id[len(prefix) :]) for fi_id in post if fi_id.startswith(prefix)]
+        if ids:
+            file_importers = (
+                FileImporter.objects.all().changed_files().filter(id__in=ids)
+            )
+        else:
+            file_importers = FileImporter.objects.all().changed_files()
+
+        if file_importers:
+            for file_importer in file_importers:
+                file_importer.reimport()
+
+            messages.success(
+                request,
+                f"Successfully created {file_importers.count()} File Import Attempts ",
+            )
+
+            if file_importers.filter(
+                status=FileImportAttempt.STATUSES.rejected.name
+            ).exists():
+                messages.error(
+                    request,
+                    f"One or more {FileImporter._meta.verbose_name_plural} "
+                    "failed to reimport (no models were created)!",
+                )
+            elif file_importers.filter(
+                status=FileImportAttempt.STATUSES.created_dirty.name
+            ).exists():
+                messages.warning(
+                    request,
+                    f"One or more {FileImporter._meta.verbose_name_plural} "
+                    "had minor errors during their reimport process (but models "
+                    "were still created)!",
+                )
+            else:
+                messages.success(
+                    request,
+                    f"Successfully reimported all selected ({file_importers.count()}) "
+                    f"{FileImporter._meta.verbose_name_plural}!",
+                )
+        else:
+            messages.warning(request, f"No File Importers selected!")
+
+    # if this is a POST request we need to process the form data
+    if request.method == "POST":
+        # create a form instance and populate it with data from the request:
+        prefix = "file_importer_"
+
+        foo_reimport = request.POST.get("submit_reimport", None)
+        refresh_from_filesystem = request.POST.get(
+            "submit_refresh_from_filesystem", None
+        )
+        if foo_reimport or refresh_from_filesystem:
+            if foo_reimport:
+                do_reimport(request.POST)
+            else:
+                FileImporter.objects.all().refresh_from_filesystem()
+                messages.success(
+                    request,
+                    f"Successfully refreshed {FileImporter.objects.count()} importers from the filesystem",
+                )
+
+        return HttpResponseRedirect(request.path)
+
+    changed_files = FileImporter.objects.all().changed_files()
+    return render(
+        request,
+        "fileimportattempt_check_hashes.html",
+        {
+            "files_changed_since_import": changed_files,
+            "last_hash_check": FileImporter.objects.order_by("created_on")
+            .last()
+            .hash_checked_on,
+        },
+    )
