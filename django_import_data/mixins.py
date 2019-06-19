@@ -16,7 +16,9 @@ class ImportStatusModel(models.Model):
             """Get the default choice value"""
             return cls.pending.name
 
-    status = models.PositiveIntegerField(choices=STATUSES.as_choices(), default=0)
+    status = models.PositiveIntegerField(
+        choices=STATUSES.as_choices(), default=0, db_index=True
+    )
 
     class Meta:
         abstract = True
@@ -38,7 +40,7 @@ class IsActiveModel(models.Model):
     """An abstract class that allows objects to be 'soft' deleted.
     """
 
-    is_active = models.BooleanField(default=True)
+    is_active = models.BooleanField(default=True, db_index=True)
 
     class Meta:
         abstract = True

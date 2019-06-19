@@ -347,8 +347,6 @@ class FieldMap:
         to_fields_verbose = self._explain_from_fields(form_fields, self.to_fields)
 
         return from_fields_verbose, to_fields_verbose, self.explanation
-        # print(f"from_fields_verbose: {from_fields_verbose}")
-        # print(f"to_fields_verbose: {to_fields_verbose}")
 
     def as_mermaid(self, *args, **kwargs):
         return render_field_map_as_mermaid(self, *args, **kwargs)

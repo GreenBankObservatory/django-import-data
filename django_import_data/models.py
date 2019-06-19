@@ -112,10 +112,10 @@ class AbstractBaseFileImportBatch(TrackedModel):
     def __str__(self):
         return self.cli
 
-    @property
-    def is_active(self):
-        """FIB is active as long as any of its import attempts are still active"""
-        return self.file_import_attempts.filter(is_active=True).exists()
+    # @property
+    # def is_active(self):
+    #     """FIB is active as long as any of its import attempts are still active"""
+    #     return self.file_import_attempts.filter(is_active=True).exists()
 
     @transaction.atomic
     def delete_imported_models(self):
@@ -193,10 +193,10 @@ class AbstractBaseFileImporter(TrackedModel):
     def acknowledged(self, value):
         self.file_import_attempts.update(acknowledged=value)
 
-    @property
-    def is_active(self):
-        """FI is active as long as any of its import attempts are still active"""
-        return self.model_import_attempts.filter(is_active=True).exists()
+    # @property
+    # def is_active(self):
+    #     """FI is active as long as any of its import attempts are still active"""
+    #     return self.model_import_attempts.filter(is_active=True).exists()
 
     def reimport(self):
         return call_command(
@@ -312,10 +312,10 @@ class AbstractBaseFileImportAttempt(TrackedModel):
         form_maps = self.get_field_maps_used_during_import()
         return {form_map.get_name(): form_map.field_maps for form_map in form_maps}
 
-    @property
-    def is_active(self):
-        """FIA is active as long as any of its import attempts are still active"""
-        return self.model_import_attempts.filter(is_active=True).exists()
+    # @property
+    # def is_active(self):
+    #     """FIA is active as long as any of its import attempts are still active"""
+    #     return self.model_import_attempts.filter(is_active=True).exists()
 
 
 class AbstractBaseModelImportAttempt(IsActiveModel, TrackedModel, ImportStatusModel):
