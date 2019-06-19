@@ -8,6 +8,7 @@ from django.db.models import OuterRef, Subquery
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
 from django.utils.timezone import make_aware, now
+from django.db.models import Max, Count, F, Q, When, Value, Case as CASE
 
 from .utils import hash_file
 
@@ -16,6 +17,56 @@ class ModelImportAttemptManager(models.Manager):
     def create_for_model(self, model, **kwargs):
         return self.create(
             content_type=ContentType.objects.get_for_model(model), **kwargs
+        )
+
+
+class FileImportBatchManager(models.Manager):
+    def get_queryset(self):
+        FileImportAttempt = apps.get_model("django_import_data.FileImportAttempt")
+        qs = super().get_queryset()
+        most_severe_fia_status = (
+            # Get only the FIAs for a given FI
+            FileImportAttempt.objects.filter(file_importer=OuterRef("id"))
+            # Sort them by creation, descending
+            .order_by("-status")
+            # Then get the first (highest value) one
+            .values("status")[:1]
+        )
+
+        # Use the above subquery to set the FI status
+        return qs.annotate(status=Subquery(most_severe_fia_status))
+
+
+class FileImportAttemptManager(models.Manager):
+    def get_queryset(self):
+        qs = super().get_queryset()
+        ModelImportAttempt = apps.get_model("django_import_data.ModelImportAttempt")
+        return qs.annotate(
+            num_model_import_attempts=Count("model_import_attempts"),
+            num_created_clean=Count(
+                "id",
+                filter=Q(
+                    model_import_attempts__status=ModelImportAttempt.STATUSES.created_clean.db_value
+                ),
+            ),
+            num_rejected=Count(
+                "id",
+                filter=Q(
+                    model_import_attempts__status=ModelImportAttempt.STATUSES.rejected.db_value
+                ),
+            ),
+            status=CASE(
+                When(
+                    num_created_clean=F("num_model_import_attempts"),
+                    then=Value(ModelImportAttempt.STATUSES.created_clean.db_value),
+                ),
+                When(
+                    num_rejected=F("num_model_import_attempts"),
+                    then=Value(ModelImportAttempt.STATUSES.rejected.db_value),
+                ),
+                default=Value(ModelImportAttempt.STATUSES.created_dirty.db_value),
+                output_field=models.CharField(),
+            ),
         )
 
 
@@ -29,7 +80,19 @@ class FileImporterManager(models.Manager):
         return file_importer, file_import_attempt
 
     def get_queryset(self):
-        return FileImporterQuerySet(self.model, using=self._db)
+        FileImportAttempt = apps.get_model("django_import_data.FileImportAttempt")
+        qs = FileImporterQuerySet(self.model, using=self._db)
+        most_recent_fia_status = (
+            # Get only the FIAs for a given FI
+            FileImportAttempt.objects.filter(file_importer=OuterRef("id"))
+            # Sort them by creation, descending
+            .order_by("-created_on")
+            # Then get the first (highest value) one
+            .values("status")[:1]
+        )
+
+        # Use the above subquery to set the FI status
+        return qs.annotate(status=Subquery(most_recent_fia_status))
 
 
 class FileImporterQuerySet(models.query.QuerySet):

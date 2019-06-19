@@ -18,7 +18,12 @@ from django.utils.functional import cached_property
 
 from .mixins import IsActiveModel, ImportStatusModel, TrackedModel
 from .utils import DjangoErrorJSONEncoder
-from .managers import ModelImportAttemptManager, FileImporterManager
+from .managers import (
+    ModelImportAttemptManager,
+    FileImporterManager,
+    FileImportAttemptManager,
+    FileImportBatchManager,
+)
 
 ### ABSTRACT BASE CLASSES ###
 class RowData(models.Model):
@@ -63,7 +68,7 @@ class RowData(models.Model):
     #     return self.import_attempts.filter(status="rejected").exists()
 
 
-class AbstractBaseFileImportBatch(TrackedModel, ImportStatusModel):
+class AbstractBaseFileImportBatch(TrackedModel):
     command = models.CharField(max_length=64, default=None)
     args = ArrayField(models.CharField(max_length=256))
     kwargs = JSONField()
@@ -142,7 +147,7 @@ class AbstractBaseFileImportBatch(TrackedModel, ImportStatusModel):
         return FileImportBatch.objects.first()
 
 
-class AbstractBaseFileImporter(TrackedModel, ImportStatusModel):
+class AbstractBaseFileImporter(TrackedModel):
     """Representation of all attempts to import a specific file"""
 
     file_path = models.CharField(
@@ -210,7 +215,7 @@ class AbstractBaseFileImporter(TrackedModel, ImportStatusModel):
         return self.hash_on_disk != self.latest_file_import_attempt.hash_when_imported
 
 
-class AbstractBaseFileImportAttempt(TrackedModel, ImportStatusModel):
+class AbstractBaseFileImportAttempt(TrackedModel):
     """Represents an individual attempt at an import of a "batch" of Importers"""
 
     file_importer = NotImplemented
@@ -246,27 +251,26 @@ class AbstractBaseFileImportAttempt(TrackedModel, ImportStatusModel):
         abstract = True
 
     def __str__(self):
-        return f"{self.name}: {self.get_status_display()}"
+        imported_by = self.imported_by.split(".")[-1]
+        return f"{self.name} <{imported_by}>"
 
-    def save(self, *args, propagate_status=True, **kwargs):
-        print("errors", self.errors)
-        if self.status == "created_clean" and self.errors:
-            self.status = "created_dirty"
-        elif "misc" in self.errors and "file_missing" in self.errors["misc"]:
-            self.status = "rejected"
-        if propagate_status and self.file_importer:
-            self.file_importer.status = self.status
-            self.file_importer.save()
-        if propagate_status and self.file_import_batch:
-            if (
-                self.STATUSES[self.status]
-                > self.STATUSES[self.file_import_batch.status]
-            ):
-                self.file_import_batch.status = self.status
-                self.file_import_batch.save()
+    # def save(self, *args, propagate_status=True, **kwargs):
+    #     if self.status == "created_clean" and self.errors:
+    #         self.status = "created_dirty"
+    #     elif self.errors and self.model_import_attempts.all().count() == 0:
+    #         self.status = "rejected"
+    #     if propagate_status and self.file_importer:
+    #         self.file_importer.status = self.status
+    #         self.file_importer.save()
+    #     if propagate_status and self.file_import_batch:
+    #         if (
+    #             self.STATUSES[self.status]
+    #             > self.STATUSES[self.file_import_batch.status]
+    #         ):
+    #             self.file_import_batch.status = self.status
+    #             self.file_import_batch.save()
 
-        super().save(*args, **kwargs)
-        print("wtf", self.status)
+    #     super().save(*args, **kwargs)
 
     @cached_property
     def name(self):
@@ -369,20 +373,9 @@ class AbstractBaseModelImportAttempt(IsActiveModel, TrackedModel, ImportStatusMo
 
     def save(self, *args, propagate_status=True, **kwargs):
         if self.errors:
-            self.status = ImportStatusModel.STATUSES.rejected.name
+            self.status = ImportStatusModel.STATUSES.rejected.db_value
         else:
-            self.status = ImportStatusModel.STATUSES.created_clean.name
-
-        if propagate_status and self.file_import_attempt:
-            if (
-                self.STATUSES[self.status]
-                > self.STATUSES[self.file_import_attempt.status]
-            ):
-                # print(
-                #     f"Set FIA status from {self.file_import_attempt.status} to {self.status}"
-                # )
-                self.file_import_attempt.status = self.status
-                self.file_import_attempt.save()
+            self.status = ImportStatusModel.STATUSES.created_clean.db_value
 
         super().save(*args, **kwargs)
 
@@ -450,6 +443,8 @@ class FileImportBatch(AbstractBaseFileImportBatch):
     def get_absolute_url(self):
         return reverse("fileimportbatch_detail", args=[str(self.id)])
 
+    objects = FileImportBatchManager()
+
     class Meta:
         verbose_name = "File Import Batch"
         verbose_name_plural = "File Import Batches"
@@ -479,6 +474,8 @@ class FileImportAttempt(AbstractBaseFileImportAttempt):
     file_import_batch = models.ForeignKey(
         FileImportBatch, related_name="file_import_attempts", on_delete=models.CASCADE
     )
+
+    objects = FileImportAttemptManager()
 
     class Meta:
         ordering = ["-created_on"]

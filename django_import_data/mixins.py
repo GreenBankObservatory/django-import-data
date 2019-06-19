@@ -7,20 +7,16 @@ class ImportStatusModel(models.Model):
     class STATUSES(OrderedEnum):
         # NOTE: Order here matters; it is used to determine precedence
         pending = "Pending"
-        created_clean = "Imported: No Errors"
-        created_dirty = "Imported: Some Errors"
-        rejected = "Rejected: Fatal Errors"
+        created_clean = "Complete Success"
+        created_dirty = "Partial Success"
+        rejected = "Failure"
 
         @classmethod
         def get_default(cls):
             """Get the default choice value"""
             return cls.pending.name
 
-    status = models.CharField(
-        max_length=max([len(s.name) for s in STATUSES]),
-        choices=((status.name, status.value) for status in STATUSES),
-        default=STATUSES.get_default(),
-    )
+    status = models.PositiveIntegerField(choices=STATUSES.as_choices(), default=0)
 
     class Meta:
         abstract = True
