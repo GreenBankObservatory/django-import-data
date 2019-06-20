@@ -1,5 +1,6 @@
 """Provides BaseImportCommand: an abstract class for creating Importers"""
 
+from collections import defaultdict
 from datetime import datetime
 from pprint import pformat
 import csv
@@ -106,6 +107,16 @@ class BaseImportCommand(BaseCommand):
                 "Used only when a directory is given in path"
             ),
         )
+        parser.add_argument(
+            "--no-file-duplicate-check",
+            action="store_true",
+            help=(
+                "This will skip the check for duplicate files, which "
+                "will speed up the import significantly for large directories. "
+                "But, behavior for handling duplicate files is... not ideal. "
+                "So this should only be used after you are sure there are no duplicates!"
+            ),
+        )
         if cls.PROGRESS_TYPE == cls.PROGRESS_TYPES.ROW:
             parser.add_argument(
                 "-r",
@@ -161,6 +172,19 @@ class BaseImportCommand(BaseCommand):
         """Provides logic for importing individual records"""
 
         raise NotImplementedError("Must be implemented by child class")
+
+    def check_for_duplicates(self, paths):
+        hash_to_path_map = defaultdict(list)
+        tqdm.write("Checking for duplicates...")
+        progress = tqdm(paths, unit="file")
+        for path in progress:
+            progress.desc = f"Hashing {path}"
+            file_hash = hash_file(path)
+            hash_to_path_map[file_hash].append(path)
+
+        return {
+            hash_: paths for hash_, paths in hash_to_path_map.items() if len(paths) > 1
+        }
 
     def determine_records_to_process(
         self,
@@ -293,14 +317,7 @@ class BaseImportCommand(BaseCommand):
             hash_on_disk = ""
 
         hash_checked_on = timezone.now()
-        # Check by both hash and file path. These should typically point
-        # to the same file, but if either:
-        # * a file has been renamed
-        # * a file has changed
-        # since last import, then they might not
-        existing_file_importers = FileImporter.objects.filter(
-            Q(hash_on_disk=hash_on_disk) | Q(file_path=path)
-        )
+        existing_file_importers = FileImporter.objects.filter(file_path=path)
         num_file_importers_found = existing_file_importers.count()
         if num_file_importers_found == 1:
             file_importer = existing_file_importers.first()
@@ -318,9 +335,10 @@ class BaseImportCommand(BaseCommand):
             )
             file_importer_created = True
         else:
-            raise ValueError("NOT GOOD; REEVALUATE LOGIC")
-
-        tqdm.write(f"{file_importer} created? {file_importer_created}")
+            raise ValueError(
+                f">1 FIs found for {path}. This should be impossible "
+                "due to unique constraint; something is very wrong"
+            )
 
         latest_file_import_attempt = file_importer.latest_file_import_attempt
         if latest_file_import_attempt:
@@ -330,6 +348,7 @@ class BaseImportCommand(BaseCommand):
                         tqdm.write(
                             f"SKIPPING previous FIA: {latest_file_import_attempt}"
                         )
+                    # TODO: We shouldn't return here...
                     return None
                 else:
                     if self.verbosity > 2:
@@ -526,6 +545,9 @@ class BaseImportCommand(BaseCommand):
 
         return file_import_batch
 
+    def post_import_actions(self):
+        pass
+
     def post_import_checks(self, file_import_batch):
         tqdm.write("All Batch-Level Errors")
         all_file_errors = [
@@ -548,9 +570,9 @@ class BaseImportCommand(BaseCommand):
             unique_errors = set(error for errors in errors_by_file for error in errors)
             all_unique_errors[error_type] = unique_errors
 
-        file_import_batch.errors = {
-            key: list(value) for key, value in all_unique_errors.items()
-        }
+        file_import_batch.errors.update(
+            {key: list(value) for key, value in all_unique_errors.items()}
+        )
         file_import_batch.save()
         tqdm.write(pformat(all_unique_errors))
         tqdm.write("=" * 80)
@@ -584,6 +606,25 @@ class BaseImportCommand(BaseCommand):
                     if option in ["limit", "start_index", "end_index"]
                 },
             )
+
+        if not options["no_file_duplicate_check"]:
+            duplicate_paths = self.check_for_duplicates(files_to_process)
+            if duplicate_paths:
+                num_duplicates = 0
+                for duplicate_paths in duplicate_paths.values():
+                    tqdm.write(f"Duplicate paths:")
+                    for path in duplicate_paths:
+                        num_duplicates += 1
+                        tqdm.write(f"  {path}")
+                        files_to_process.remove(path)
+                if options["durable"]:
+                    tqdm.write(
+                        f"The above {num_duplicates} duplicate paths have been removed from the pending import!"
+                    )
+                else:
+                    raise ValueError("Duplicate paths found! See log for details")
+
+        if self.PROGRESS_TYPE == self.PROGRESS_TYPES.FILE:
             files_to_process = tqdm(files_to_process, desc=self.help, unit="files")
 
         if options["no_transaction"]:
@@ -596,4 +637,6 @@ class BaseImportCommand(BaseCommand):
                     transaction.set_rollback(True)
                     tqdm.write("DRY RUN; rolling back changes")
 
+        file_import_batch.errors["duplicate_paths"] = duplicate_paths
         self.post_import_checks(file_import_batch)
+        self.post_import_actions()
