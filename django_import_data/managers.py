@@ -1,17 +1,17 @@
-from datetime import datetime
 import os
 
 from tqdm import tqdm
 
 from django.apps import apps
-from django.db.models import Exists, OuterRef, Subquery
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
-from django.utils.timezone import make_aware, now
-from django.db.models import Max, Count, F, Q, When, Value, Case as CASE, IntegerField
-from django.db.models.functions import Cast
 
-from .utils import hash_file
+from .querysets import (
+    ModelImportAttemptQuerySet,
+    FileImportAttemptQuerySet,
+    FileImportBatchQuerySet,
+    FileImporterQuerySet,
+)
 
 
 class ModelImportAttemptManager(models.Manager):
@@ -20,74 +20,18 @@ class ModelImportAttemptManager(models.Manager):
             content_type=ContentType.objects.get_for_model(model), **kwargs
         )
 
+    def get_queryset(self):
+        return ModelImportAttemptQuerySet(self.model, using=self._db)
+
 
 class FileImportBatchManager(models.Manager):
     def get_queryset(self):
-        FileImportAttempt = apps.get_model("django_import_data.FileImportAttempt")
-        qs = super().get_queryset()
-        most_severe_fia_status = (
-            # Get only the FIAs for a given FI
-            FileImportAttempt.objects.filter(file_importer=OuterRef("id"))
-            # Sort them by creation, descending
-            .order_by("-status")
-            # Then get the first (highest value) one
-            .values("status")[:1]
-        )
-        is_active = (
-            # Get only the FIAs for a given FI
-            FileImportAttempt.objects.filter(file_importer=OuterRef("id"))
-            # Sort them by is_active, descending
-            .order_by("-is_active")
-            # Then get the first (highest value) one. If any FIAs are active,
-            # this will be True
-            .values("is_active")[:1]
-        )
-
-        # Use the above subquery to set the FI status
-        return qs.annotate(
-            status=Subquery(most_severe_fia_status),
-            num_file_import_attempts=Count("file_import_attempts"),
-            is_active=Subquery(is_active),
-        )
+        return FileImportBatchQuerySet(self.model, using=self._db)
 
 
 class FileImportAttemptManager(models.Manager):
     def get_queryset(self):
-        qs = super().get_queryset()
-        ModelImportAttempt = apps.get_model("django_import_data.ModelImportAttempt")
-        # Get all MIAs for this FIA that are active
-        is_active = ModelImportAttempt.objects.filter(
-            file_import_attempt=OuterRef("id"), is_active=True
-        )
-        return qs.annotate(
-            num_model_import_attempts=Count("model_import_attempts"),
-            num_created_clean=Count(
-                "id",
-                filter=Q(
-                    model_import_attempts__status=ModelImportAttempt.STATUSES.created_clean.db_value
-                ),
-            ),
-            num_rejected=Count(
-                "id",
-                filter=Q(
-                    model_import_attempts__status=ModelImportAttempt.STATUSES.rejected.db_value
-                ),
-            ),
-            status=CASE(
-                When(
-                    num_created_clean=F("num_model_import_attempts"),
-                    then=Value(ModelImportAttempt.STATUSES.created_clean.db_value),
-                ),
-                When(
-                    num_rejected=F("num_model_import_attempts"),
-                    then=Value(ModelImportAttempt.STATUSES.rejected.db_value),
-                ),
-                default=Value(ModelImportAttempt.STATUSES.created_dirty.db_value),
-                output_field=models.CharField(),
-            ),
-            # If any MIAs are active, this FIA is active
-            is_active=Exists(is_active),
-        )
+        return FileImportAttemptQuerySet(self.model, using=self._db)
 
 
 class FileImporterManager(models.Manager):
@@ -100,89 +44,4 @@ class FileImporterManager(models.Manager):
         return file_importer, file_import_attempt
 
     def get_queryset(self):
-        FileImportAttempt = apps.get_model("django_import_data.FileImportAttempt")
-        ModelImportAttempt = apps.get_model("django_import_data.ModelImportAttempt")
-        qs = FileImporterQuerySet(self.model, using=self._db)
-        most_recent_fia_status = (
-            # Get only the FIAs for a given FI
-            FileImportAttempt.objects.filter(file_importer=OuterRef("id"))
-            # Sort them by creation, descending
-            .order_by("-created_on")
-            # Then get status from the most recent (first) one
-            .values("status")[:1]
-        )
-        most_recent_fia_is_active = (
-            # An FI is active if its most recent FIA is active
-            # Get only the FIAs for a given FI
-            FileImportAttempt.objects.filter(file_importer=OuterRef("id"))
-            # Sort them by creation, descending
-            .order_by("-created_on")
-            # Then get is_active from the most recent (first) one
-            .values("is_active")[:1]
-        )
-
-        # An FI is acknowledged if its most recent FIA has been acknowledged
-        acknowledged = (
-            # Get only the FIAs for a given FI
-            FileImportAttempt.objects.filter(file_importer=OuterRef("id"))
-            # Sort them by creation, descending
-            .order_by("-created_on")
-            # Then get acknowledged from the most recent (first) one
-            .values("acknowledged")[:1]
-        )
-
-        # Use the above subquery to set the FI status
-        return qs.annotate(
-            status=Subquery(most_recent_fia_status),
-            num_file_import_attempts=Count("file_import_attempts"),
-            is_active=Subquery(most_recent_fia_is_active),
-            acknowledged=Subquery(acknowledged),
-        )
-
-
-class FileImporterQuerySet(models.query.QuerySet):
-    def refresh_from_filesystem(self):
-        """Recompute the hash_on_disk fields of all QuerySet members
-
-        Returns a report of which members are missing, changed, or unchanged
-        from the previous import check"""
-        report = {"missing": [], "changed": [], "unchanged": []}
-        progress = tqdm(self.order_by("created_on"), unit="files")
-        for file_importer in progress:
-            file_importer.hash_checked_on = now()
-            path = file_importer.file_path
-            progress.desc = path
-            try:
-                hash_on_disk = hash_file(path)
-            except FileNotFoundError:
-                file_importer.hash_on_disk = ""
-                file_importer.save()
-                report["missing"].append(file_importer)
-            else:
-                file_modified_on = make_aware(
-                    datetime.fromtimestamp(os.path.getmtime(path))
-                )
-                if file_importer.hash_on_disk != hash_on_disk:
-                    report["changed"].append(file_importer)
-                else:
-                    report["unchanged"].append(file_importer)
-                file_importer.hash_on_disk = hash_on_disk
-                file_importer.file_modified_on = file_modified_on
-                file_importer.save()
-
-        return report
-
-    def changed_files(self):
-        FileImportAttempt = apps.get_model("django_import_data.FileImportAttempt")
-        FileImporter = apps.get_model("django_import_data.FileImporter")
-        latest = FileImportAttempt.objects.filter(
-            file_importer=OuterRef("pk")
-        ).order_by("-created_on")
-        changed_hashes = FileImporter.objects.annotate(
-            latest_hash=Subquery(latest.values("hash_when_imported")[:1])
-        ).exclude(hash_on_disk=models.F("latest_hash"))
-
-        changed_paths = FileImporter.objects.filter(hash_on_disk="")
-
-        changed = changed_hashes | changed_paths
-        return changed
+        return FileImporterQuerySet(self.model, using=self._db)
