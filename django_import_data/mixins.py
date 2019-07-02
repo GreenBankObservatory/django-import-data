@@ -7,6 +7,8 @@ class ImportStatusModel(models.Model):
     class STATUSES(OrderedEnum):
         # NOTE: Order here matters; it is used to determine precedence
         pending = "Pending"
+        empty = "Empty"
+        deleted = "Deleted"
         created_clean = "Complete Success"
         created_dirty = "Partial Success"
         rejected = "Failure"

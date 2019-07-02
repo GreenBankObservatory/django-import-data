@@ -18,7 +18,7 @@ from django.db import transaction
 from django.urls import reverse
 from django.utils.functional import cached_property
 
-from .mixins import IsActiveModel, ImportStatusModel, TrackedModel
+from .mixins import ImportStatusModel, TrackedModel
 from .utils import DjangoErrorJSONEncoder
 from .managers import (
     ModelImportAttemptManager,
@@ -70,7 +70,7 @@ class RowData(models.Model):
     #     return self.import_attempts.filter(status="rejected").exists()
 
 
-class AbstractBaseFileImportBatch(IsActiveModel, ImportStatusModel, TrackedModel):
+class AbstractBaseFileImportBatch(ImportStatusModel, TrackedModel):
 
     command = models.CharField(max_length=64, default=None)
     args = ArrayField(models.CharField(max_length=256))
@@ -115,11 +115,6 @@ class AbstractBaseFileImportBatch(IsActiveModel, ImportStatusModel, TrackedModel
     def __str__(self):
         return self.cli
 
-    # @property
-    # def is_active(self):
-    #     """FIB is active as long as any of its import attempts are still active"""
-    #     return self.file_import_attempts.filter(is_active=True).exists()
-
     @transaction.atomic
     def delete_imported_models(self):
         """Delete all models imported by this FIB"""
@@ -135,7 +130,6 @@ class AbstractBaseFileImportBatch(IsActiveModel, ImportStatusModel, TrackedModel
             total_num_mia_deletions += num_fia_deletions
             all_mia_deletions += fia_deletions
 
-        self.save()
         return (total_num_fia_deletions, total_num_mia_deletions, all_mia_deletions)
 
     @transaction.atomic
@@ -152,23 +146,18 @@ class AbstractBaseFileImportBatch(IsActiveModel, ImportStatusModel, TrackedModel
 
     def derive_status(self):
         """FIB status is the most severe status of its most recent FIAs"""
-        status = (
-            self.file_import_attempts.filter(is_active=True)
-            .order_by("-status")
-            .values_list("status", flat=True)
-            .first()
-        )
-        if status is None:
-            status = self.STATUSES.rejected.db_value
+        if self.file_import_attempts.exists():
+            status = (
+                self.file_import_attempts.order_by("-status")
+                .values_list("status", flat=True)
+                .first()
+            )
+        else:
+            status = self.STATUSES.empty.db_value
         return status
-
-    def derive_is_active(self):
-        """FIB is active if ANY of its FIAs are active"""
-        return self.file_import_attempts.filter(is_active=True).exists()
 
     def derive_cached_values(self):
         self.status = self.derive_status()
-        self.is_active = self.derive_is_active()
 
     def save(
         self, *args, derive_cached_values=True, propagate_derived_values=False, **kwargs
@@ -179,7 +168,7 @@ class AbstractBaseFileImportBatch(IsActiveModel, ImportStatusModel, TrackedModel
         super().save(*args, **kwargs)
 
 
-class AbstractBaseFileImporter(IsActiveModel, ImportStatusModel, TrackedModel):
+class AbstractBaseFileImporter(ImportStatusModel, TrackedModel):
     """Representation of all attempts to import a specific file"""
 
     file_path = models.CharField(
@@ -241,24 +230,19 @@ class AbstractBaseFileImporter(IsActiveModel, ImportStatusModel, TrackedModel):
     def file_changed(self):
         return self.hash_on_disk != self.latest_file_import_attempt.hash_when_imported
 
-    def derive_is_active(self):
-        """FI is active if ANY of its FIAs are active"""
-        return self.file_import_attempts.filter(is_active=True).exists()
-
     def derive_status(self):
         """FI status is the status of its most recent FIA"""
-        status = (
-            self.file_import_attempts.filter(is_active=True)
-            .order_by("-created_on")
-            .values_list("status", flat=True)
-            .first()
-        )
-        if status is None:
-            status = self.STATUSES.rejected.db_value
+        if self.file_import_attempts.exists():
+            status = (
+                self.file_import_attempts.order_by("-created_on")
+                .values_list("status", flat=True)
+                .first()
+            )
+        else:
+            status = self.STATUSES.empty.db_value
         return status
 
     def derive_cached_values(self):
-        self.is_active = self.derive_is_active()
         self.status = self.derive_status()
 
     def save(
@@ -269,11 +253,28 @@ class AbstractBaseFileImporter(IsActiveModel, ImportStatusModel, TrackedModel):
 
         super().save(*args, **kwargs)
 
+    @transaction.atomic
+    def delete_imported_models(self):
+        """Delete all models imported by this FI"""
 
-class AbstractBaseFileImportAttempt(IsActiveModel, ImportStatusModel, TrackedModel):
+        total_num_fia_deletions = 0
+        total_num_mia_deletions = 0
+        all_mia_deletions = Counter()
+        # For every ContentType imported by this FI...
+        for fia in self.file_import_attempts.all():
+            # ...and delete them:
+            num_fia_deletions, fia_deletions = fia.delete_imported_models()
+            total_num_fia_deletions += 1
+            total_num_mia_deletions += num_fia_deletions
+            all_mia_deletions += fia_deletions
+
+        return (total_num_fia_deletions, total_num_mia_deletions, all_mia_deletions)
+
+
+class AbstractBaseFileImportAttempt(ImportStatusModel, TrackedModel):
     """Represents an individual attempt at an import of a "batch" of Importers"""
 
-    PROPAGATED_FIELDS = ("status", "is_active")
+    PROPAGATED_FIELDS = ("status",)
 
     file_importer = NotImplemented
     file_import_batch = NotImplemented
@@ -311,29 +312,19 @@ class AbstractBaseFileImportAttempt(IsActiveModel, ImportStatusModel, TrackedMod
         imported_by = self.imported_by.split(".")[-1]
         return f"{self.name} <{imported_by}>"
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._original_status = self.status
-        self._original_is_active = self.is_active
-
-    def derive_is_active(self):
-        """FIA is active if ANY of its MIAs are active"""
-        return self.model_import_attempts.filter(is_active=True).exists()
-
     def derive_status(self):
         """FIA status is the most severe status of its MIAs"""
-        status = (
-            self.model_import_attempts.filter(is_active=True)
-            .order_by("-status")
-            .values_list("status", flat=True)
-            .first()
-        )
-        if status is None:
-            status = self.STATUSES.rejected.db_value
+        if self.model_import_attempts.exists():
+            status = (
+                self.model_import_attempts.order_by("-status")
+                .values_list("status", flat=True)
+                .first()
+            )
+        else:
+            status = self.STATUSES.empty.db_value
         return status
 
     def derive_cached_values(self):
-        self.is_active = self.derive_is_active()
         self.status = self.derive_status()
 
     def save(
@@ -343,17 +334,7 @@ class AbstractBaseFileImportAttempt(IsActiveModel, ImportStatusModel, TrackedMod
             self.derive_cached_values()
         super().save(*args, **kwargs)
 
-        propagated_fields_being_updated = []
-        if self._original_status != self.status:
-            propagated_fields_being_updated.append("status")
-        if self._original_is_active != self.is_active:
-            propagated_fields_being_updated.append("is_active")
-        if propagate_derived_values and propagated_fields_being_updated:
-            print(
-                f"{self.__class__.__name__}: Now propagating derived values because the following "
-                f"propagated fields are being updated: {propagated_fields_being_updated}. "
-                "To disable this behavior, use propagate_derived_values=False"
-            )
+        if propagate_derived_values:
             self.file_importer.save()
             self.file_import_batch.save()
 
@@ -387,7 +368,9 @@ class AbstractBaseFileImportAttempt(IsActiveModel, ImportStatusModel, TrackedMod
                 )
                 num_deletions += num_deletions_for_model_class
                 deletions += deletions_for_model_class
-        self.save()
+        self.model_import_attempts.update(
+            status=ImportStatusModel.STATUSES.deleted.db_value
+        )
         return (num_deletions, deletions)
 
     def get_form_maps_used_during_import(self):
@@ -397,14 +380,9 @@ class AbstractBaseFileImportAttempt(IsActiveModel, ImportStatusModel, TrackedMod
         form_maps = self.get_field_maps_used_during_import()
         return {form_map.get_name(): form_map.field_maps for form_map in form_maps}
 
-    # @property
-    # def is_active(self):
-    #     """FIA is active as long as any of its import attempts are still active"""
-    #     return self.model_import_attempts.filter(is_active=True).exists()
 
-
-class AbstractBaseModelImportAttempt(IsActiveModel, TrackedModel, ImportStatusModel):
-    PROPAGATED_FIELDS = ("status", "is_active")
+class AbstractBaseModelImportAttempt(TrackedModel, ImportStatusModel):
+    PROPAGATED_FIELDS = ("status",)
     # TODO: This MAYBE can be here
     row_data = models.ForeignKey(
         RowData,
@@ -451,11 +429,6 @@ class AbstractBaseModelImportAttempt(IsActiveModel, TrackedModel, ImportStatusMo
         abstract = True
         ordering = ["-created_on"]
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._original_status = self.status
-        self._original_is_active = self.is_active
-
     def __str__(self):
         return (
             f"{self.content_type} imported from "
@@ -463,23 +436,14 @@ class AbstractBaseModelImportAttempt(IsActiveModel, TrackedModel, ImportStatusMo
         )
 
     def save(self, *args, propagate_derived_values=True, **kwargs):
-        # if self.errors:
-        #     self.status = ImportStatusModel.STATUSES.rejected.db_value
-        # else:
-        #     self.status = ImportStatusModel.STATUSES.created_clean.db_value
+        if self.status == ImportStatusModel.STATUSES.pending.db_value:
+            if self.errors:
+                self.status = ImportStatusModel.STATUSES.rejected.db_value
+            else:
+                self.status = ImportStatusModel.STATUSES.created_clean.db_value
 
-        propagated_fields_being_updated = []
-        if self._original_status != self.status:
-            propagated_fields_being_updated.append("status")
-        if self._original_is_active != self.is_active:
-            propagated_fields_being_updated.append("is_active")
         super().save(*args, **kwargs)
-        if propagate_derived_values and propagated_fields_being_updated:
-            print(
-                f"{self.__class__.__name__} Now propagating derived values because the following "
-                f"propagated fields are being updated: {propagated_fields_being_updated}. "
-                "To disable this behavior, use propagate_derived_values=False"
-            )
+        if propagate_derived_values:
             self.file_import_attempt.save(
                 propagate_derived_values=propagate_derived_values
             )
@@ -523,7 +487,7 @@ class AbstractBaseModelImportAttempt(IsActiveModel, TrackedModel, ImportStatusMo
     def delete_imported_models(self):
         """Delete all models imported by this MIA"""
 
-        self.is_active = False
+        self.status = ImportStatusModel.STATUSES.deleted.db_value
         self.save()
 
         num_deletions = 0
@@ -611,16 +575,6 @@ class ModelImportAttempt(AbstractBaseModelImportAttempt):
     def get_create_from_import_attempt_url(self):
         return reverse(
             f"{self.content_type.model}_create_from_audit", args=[str(self.id)]
-        )
-
-    def delete(self, *args, **kwargs):
-        if self.importee:
-            num_importee_deletions, importee_deletions = self.importee.delete()
-        num_deletions, deletions = super().delete(*args, **kwargs)
-        self.save()
-        return (
-            num_deletions + num_importee_deletions,
-            {**deletions, **importee_deletions},
         )
 
 

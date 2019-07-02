@@ -288,6 +288,7 @@ class BaseImportCommand(BaseCommand):
         info = {}
         errors = {}
         if not rows:
+            errors["empty"] = ["No rows!"]
             return info, errors
 
         headers = rows[0].keys()
