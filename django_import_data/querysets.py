@@ -7,7 +7,7 @@ from tqdm import tqdm
 
 from django.apps import apps
 from django.db import transaction
-from django.db.models import F, OuterRef, Subquery
+from django.db.models import F, OuterRef, Subquery, Count, Q
 from django.db.models.query import QuerySet
 from django.utils.timezone import make_aware, now
 
@@ -75,6 +75,30 @@ class FileImporterQuerySet(DerivedValuesQueryset):
         changed = changed_hashes | changed_paths
         return changed
 
+    def annotate_acknowledged(self):
+        FileImportAttempt = apps.get_model("django_import_data.FileImportAttempt")
+        acknowledged = (
+            FileImportAttempt.objects.filter(file_importer=OuterRef("pk"))
+            .order_by("-created_on")
+            .values("acknowledged")[:1]
+        )
+        return self.annotate(acknowledged=Subquery(acknowledged))
+
+    def annotate_num_file_import_attempts(self):
+        return self.annotate(
+            num_file_import_attempts=Count("file_import_attempts", distinct=True)
+        )
+
+    def annotate_num_model_import_attempts(self):
+        FileImportAttempt = apps.get_model("django_import_data.FileImportAttempt")
+        return self.annotate(
+            num_model_import_attempts=Count(
+                "file_import_attempts__model_import_attempts",
+                filter=Q(file_import_attempts__file_importer__id=F("id")),
+                distinct=True,
+            )
+        )
+
 
 class FileImportAttemptQuerySet(DerivedValuesQueryset):
     @transaction.atomic
@@ -103,6 +127,11 @@ class FileImportAttemptQuerySet(DerivedValuesQueryset):
             self.propagate_derived_values()
 
         return result
+
+    def annotate_num_model_import_attempts(self):
+        return self.annotate(
+            num_model_import_attempts=Count("model_import_attempts", distinct=True)
+        )
 
 
 class ModelImportAttemptQuerySet(DerivedValuesQueryset):

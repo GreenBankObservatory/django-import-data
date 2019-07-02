@@ -204,15 +204,13 @@ class AbstractBaseFileImporter(ImportStatusModel, TrackedModel):
     def name(self):
         return os.path.basename(self.file_path)
 
-    @property
-    def acknowledged(self):
-        """Return True if all FIAs have been acknowledged; otherwise False"""
+    def acknowledge(self):
+        self.latest_file_import_attempt.acknowledged = True
+        self.latest_file_import_attempt.save()
 
-        return not self.file_import_attempts.filter(acknowledged=False).exists()
-
-    @acknowledged.setter
-    def acknowledged(self, value):
-        self.file_import_attempts.update(acknowledged=value)
+    def unacknowledge(self):
+        self.latest_file_import_attempt.acknowledged = False
+        self.latest_file_import_attempt.save()
 
     def reimport(self):
         return call_command(
@@ -414,7 +412,6 @@ class AbstractBaseModelImportAttempt(TrackedModel, ImportStatusModel):
     )
     imported_by = models.CharField(max_length=128, default=None)
     content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
-    acknowledged = models.BooleanField(default=False)
 
     file_import_attempt = models.ForeignKey(
         "django_import_data.FileImportAttempt",

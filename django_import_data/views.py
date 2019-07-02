@@ -1,7 +1,7 @@
 from django.contrib import messages
 from django.http import HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect, render
-from django.views.generic import CreateView, FormView
+from django.views.generic import CreateView, FormView, UpdateView
 from django.views.generic.detail import DetailView
 from django.views.generic.list import ListView
 
@@ -104,6 +104,27 @@ class FileImporterCreateView(CreateView):
     model = FileImporter
     fields = "importer_name"
     template_name = "fileimporter_form.html"
+
+
+def acknowledge_file_import_attempt(request, pk):
+    file_import_attempt = get_object_or_404(FileImportAttempt, id=pk)
+    if request.method == "POST":
+        acknowledge = request.POST.get("acknowledge", None)
+        if acknowledge is None:
+            messages.error(request, "Malformed request")
+        else:
+            if acknowledge == "Acknowledge":
+                file_import_attempt.acknowledged = True
+            else:
+                file_import_attempt.acknowledged = False
+            file_import_attempt.save()
+
+        messages.success(
+            request,
+            f"File Import Attempt '{file_import_attempt}' has been "
+            f"{'acknowledged' if file_import_attempt.acknowledged else 'unacknowledged'}",
+        )
+    return HttpResponseRedirect(file_import_attempt.get_absolute_url())
 
 
 def changed_files_view(request):
