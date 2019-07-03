@@ -4,6 +4,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views.generic import CreateView, FormView, UpdateView
 from django.views.generic.detail import DetailView
 from django.views.generic.list import ListView
+from django.urls import reverse
 
 from .models import (
     ModelImportAttempt,
@@ -106,8 +107,9 @@ class FileImporterCreateView(CreateView):
     template_name = "fileimporter_form.html"
 
 
-def acknowledge_file_import_attempt(request, pk):
-    file_import_attempt = get_object_or_404(FileImportAttempt, id=pk)
+def acknowledge_file_importer(request, pk):
+    file_importer = get_object_or_404(FileImporter, id=pk)
+    file_import_attempt = file_importer.latest_file_import_attempt
     if request.method == "POST":
         acknowledge = request.POST.get("acknowledge", None)
         if acknowledge is None:

@@ -205,12 +205,14 @@ class AbstractBaseFileImporter(ImportStatusModel, TrackedModel):
         return os.path.basename(self.file_path)
 
     def acknowledge(self):
-        self.latest_file_import_attempt.acknowledged = True
-        self.latest_file_import_attempt.save()
+        fia = self.latest_file_import_attempt
+        fia.acknowledged = True
+        fia.save()
 
     def unacknowledge(self):
-        self.latest_file_import_attempt.acknowledged = False
-        self.latest_file_import_attempt.save()
+        fia = self.latest_file_import_attempt
+        fia.acknowledged = False
+        fia.save()
 
     def reimport(self):
         return call_command(
