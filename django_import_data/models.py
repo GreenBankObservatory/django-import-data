@@ -22,9 +22,10 @@ from .mixins import ImportStatusModel, TrackedModel
 from .utils import DjangoErrorJSONEncoder
 from .managers import (
     ModelImportAttemptManager,
+    ModelImporterManager,
     FileImporterManager,
     FileImportAttemptManager,
-    FileImportBatchManager,
+    FileImporterBatchManager,
 )
 
 ### ABSTRACT BASE CLASSES ###
@@ -70,7 +71,7 @@ class RowData(models.Model):
     #     return self.import_attempts.filter(status="rejected").exists()
 
 
-class AbstractBaseFileImportBatch(ImportStatusModel, TrackedModel):
+class AbstractBaseFileImporterBatch(ImportStatusModel, TrackedModel):
 
     command = models.CharField(max_length=64, default=None)
     args = ArrayField(models.CharField(max_length=256))
@@ -142,13 +143,13 @@ class AbstractBaseFileImportBatch(ImportStatusModel, TrackedModel):
         num_fias_deleted, num_models_deleted, deletions = self.delete_imported_models()
         print(num_fias_deleted, num_models_deleted, deletions)
         call_command(self.command, *args, **{**self.kwargs, "overwrite": True})
-        return FileImportBatch.objects.first()
+        return FileImporterBatch.objects.first()
 
     def derive_status(self):
-        """FIB status is the most severe status of its most recent FIAs"""
-        if self.file_import_attempts.exists():
+        """FIB status is the most severe status of its most recent FIs"""
+        if self.file_importers.exists():
             status = (
-                self.file_import_attempts.order_by("-status")
+                self.file_importers.order_by("-status")
                 .values_list("status", flat=True)
                 .first()
             )
@@ -170,6 +171,8 @@ class AbstractBaseFileImportBatch(ImportStatusModel, TrackedModel):
 
 class AbstractBaseFileImporter(ImportStatusModel, TrackedModel):
     """Representation of all attempts to import a specific file"""
+
+    file_importer_batch = NotImplemented
 
     file_path = models.CharField(
         max_length=512,
@@ -253,6 +256,11 @@ class AbstractBaseFileImporter(ImportStatusModel, TrackedModel):
 
         super().save(*args, **kwargs)
 
+        if propagate_derived_values:
+            self.file_importer_batch.save(
+                propagate_derived_values=propagate_derived_values
+            )
+
     @transaction.atomic
     def delete_imported_models(self):
         """Delete all models imported by this FI"""
@@ -277,7 +285,6 @@ class AbstractBaseFileImportAttempt(ImportStatusModel, TrackedModel):
     PROPAGATED_FIELDS = ("status",)
 
     file_importer = NotImplemented
-    file_import_batch = NotImplemented
 
     # TODO: Make this a FileField?
     imported_from = models.CharField(
@@ -313,10 +320,10 @@ class AbstractBaseFileImportAttempt(ImportStatusModel, TrackedModel):
         return f"{self.name} <{imported_by}>"
 
     def derive_status(self):
-        """FIA status is the most severe status of its MIAs"""
-        if self.model_import_attempts.exists():
+        """FIA status is the most severe status of its MIs"""
+        if self.model_importers.exists():
             status = (
-                self.model_import_attempts.order_by("-status")
+                self.model_importers.order_by("-status")
                 .values_list("status", flat=True)
                 .first()
             )
@@ -335,8 +342,7 @@ class AbstractBaseFileImportAttempt(ImportStatusModel, TrackedModel):
         super().save(*args, **kwargs)
 
         if propagate_derived_values:
-            self.file_importer.save()
-            self.file_import_batch.save()
+            self.file_importer.save(propagate_derived_values=propagate_derived_values)
 
     @cached_property
     def name(self):
@@ -351,12 +357,12 @@ class AbstractBaseFileImportAttempt(ImportStatusModel, TrackedModel):
         deletions = Counter()
         # For every ContentType imported by this FIA...
         for ct in ContentType.objects.filter(
-            id__in=self.model_import_attempts.values("content_type")
-        ):
+            id__in=self.model_importers.values("model_import_attempts__content_type")
+        ).distinct():
             try:
                 # ...get a queryset of all model instances that were imported...
                 to_delete = ct.model_class().objects.filter(
-                    model_import_attempt__file_import_attempt=self
+                    model_importer__file_import_attempt=self
                 )
             except FieldError:
                 # TODO: Warning?
@@ -368,9 +374,13 @@ class AbstractBaseFileImportAttempt(ImportStatusModel, TrackedModel):
                 )
                 num_deletions += num_deletions_for_model_class
                 deletions += deletions_for_model_class
-        self.model_import_attempts.update(
-            status=ImportStatusModel.STATUSES.deleted.db_value
+        mia = (
+            self.model_importers.order_by("created_on")
+            .last()
+            .latest_model_import_attempt
         )
+        mia.status = ImportStatusModel.STATUSES.deleted.db_value
+        mia.save()
         return (num_deletions, deletions)
 
     def get_form_maps_used_during_import(self):
@@ -379,6 +389,68 @@ class AbstractBaseFileImportAttempt(ImportStatusModel, TrackedModel):
     def get_field_maps_used_during_import(self):
         form_maps = self.get_field_maps_used_during_import()
         return {form_map.get_name(): form_map.field_maps for form_map in form_maps}
+
+
+class AbstractBaseModelImporter(ImportStatusModel, TrackedModel):
+    """Representation of all attempts to import a specific file"""
+
+    file_import_attempt = models.ForeignKey(
+        "django_import_data.FileImportAttempt",
+        related_name="model_importers",
+        on_delete=models.CASCADE,
+        help_text="Reference to the FileImportAttempt this was created from",
+    )
+
+    class Meta:
+        abstract = True
+
+    @property
+    def latest_model_import_attempt(self):
+        return self.model_import_attempts.order_by("created_on").last()
+
+    def derive_status(self):
+        """MI status is the status of its most recent MIA"""
+        if self.model_import_attempts.exists():
+            status = (
+                self.model_import_attempts.order_by("-created_on")
+                .values_list("status", flat=True)
+                .first()
+            )
+        else:
+            status = self.STATUSES.empty.db_value
+        return status
+
+    def derive_cached_values(self):
+        self.status = self.derive_status()
+
+    def save(
+        self, *args, derive_cached_values=True, propagate_derived_values=False, **kwargs
+    ):
+        if derive_cached_values:
+            self.derive_cached_values()
+
+        super().save(*args, **kwargs)
+
+        if propagate_derived_values:
+            self.file_import_attempt.save(
+                propagate_derived_values=propagate_derived_values
+            )
+
+    @transaction.atomic
+    def delete_imported_models(self):
+        """Delete all models imported by this MI"""
+
+        total_num_mia_deletions = 0
+        # For every ContentType imported by this MI...
+        for mia in self.model_import_attempts.all():
+            # ...and delete them:
+            num_mia_deletions, mia_deletions = mia.delete_imported_models()
+            total_num_mia_deletions += num_mia_deletions
+
+        return total_num_mia_deletions
+
+
+###
 
 
 class AbstractBaseModelImportAttempt(TrackedModel, ImportStatusModel):
@@ -394,35 +466,40 @@ class AbstractBaseModelImportAttempt(TrackedModel, ImportStatusModel):
     importee_field_data = JSONField(
         encoder=DjangoErrorJSONEncoder,
         default=dict,
-        # null=True,
-        # blank=True,
         help_text="The original data used to create this Audit",
     )
     errors = JSONField(
         encoder=DjangoErrorJSONEncoder,
         default=dict,
-        # null=True,
-        # blank=True,
         help_text="Stores any errors encountered during the creation of the auditee",
     )
     error_summary = JSONField(
         encoder=DjangoErrorJSONEncoder,
         default=dict,
-        # null=True,
-        # blank=True,
         help_text="Stores any 'summary' information that might need to be associated",
     )
     imported_by = models.CharField(max_length=128, default=None)
     content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
 
-    file_import_attempt = models.ForeignKey(
-        "django_import_data.FileImportAttempt",
+    # file_import_attempt = models.ForeignKey(
+    #     "django_import_data.FileImportAttempt",
+    #     related_name="model_import_attempts",
+    #     on_delete=models.CASCADE,
+    #     null=True,
+    #     blank=True,
+    #     help_text="Reference to the FileImportAttempt this was created from",
+    # )
+
+    model_importer = models.ForeignKey(
+        "django_import_data.ModelImporter",
         related_name="model_import_attempts",
         on_delete=models.CASCADE,
-        null=True,
-        blank=True,
-        help_text="Reference to the FileImportAttempt this was created from",
+        help_text="Reference to the ModelImporter that made this attempt",
     )
+
+    @property
+    def file_import_attempt(self):
+        return self.model_importer.file_import_attempt
 
     class Meta:
         abstract = True
@@ -449,6 +526,7 @@ class AbstractBaseModelImportAttempt(TrackedModel, ImportStatusModel):
             self.file_import_attempt.save(
                 propagate_derived_values=propagate_derived_values
             )
+            self.model_importer.save(propagate_derived_values=propagate_derived_values)
 
     def summary(self):
         return (
@@ -514,19 +592,26 @@ class AbstractBaseModelImportAttempt(TrackedModel, ImportStatusModel):
 ### CONCRETE CLASSES ###
 
 
-class FileImportBatch(AbstractBaseFileImportBatch):
+class FileImporterBatch(AbstractBaseFileImporterBatch):
     def get_absolute_url(self):
-        return reverse("fileimportbatch_detail", args=[str(self.id)])
+        return reverse("fileimporterbatch_detail", args=[str(self.id)])
 
-    objects = FileImportBatchManager()
+    objects = FileImporterBatchManager()
 
     class Meta:
-        verbose_name = "File Import Batch"
-        verbose_name_plural = "File Import Batches"
+        verbose_name = "File Importer Batch"
+        verbose_name_plural = "File Importer Batches"
         ordering = ["-created_on"]
 
 
 class FileImporter(AbstractBaseFileImporter):
+    file_importer_batch = models.ForeignKey(
+        FileImporterBatch,
+        related_name="file_importers",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+    )
     objects = FileImporterManager()
 
     class Meta:
@@ -542,12 +627,8 @@ class FileImporter(AbstractBaseFileImporter):
 
 
 class FileImportAttempt(AbstractBaseFileImportAttempt):
-    # TODO: Just importer?
     file_importer = models.ForeignKey(
         FileImporter, related_name="file_import_attempts", on_delete=models.CASCADE
-    )
-    file_import_batch = models.ForeignKey(
-        FileImportBatch, related_name="file_import_attempts", on_delete=models.CASCADE
     )
 
     objects = FileImportAttemptManager()
@@ -559,6 +640,21 @@ class FileImportAttempt(AbstractBaseFileImportAttempt):
 
     def get_absolute_url(self):
         return reverse("fileimportattempt_detail", args=[str(self.id)])
+
+
+class ModelImporter(AbstractBaseModelImporter):
+    objects = ModelImporterManager()
+
+    class Meta:
+        ordering = ["-created_on"]
+        verbose_name = "Model Importer"
+        verbose_name_plural = "Model Importers"
+
+    def get_absolute_url(self):
+        return reverse("modelimporter_detail", args=[str(self.id)])
+
+    # def gen_import(self, path):
+    #     return ModelImportAttempt.objects.create(batch=self, imported_from=path)
 
 
 class ModelImportAttempt(AbstractBaseModelImportAttempt):

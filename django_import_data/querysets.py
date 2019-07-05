@@ -24,8 +24,16 @@ class DerivedValuesQueryset(QuerySet):
             self.propagate_derived_values()
 
 
-class FileImportBatchQuerySet(DerivedValuesQueryset):
-    pass
+class FileImporterBatchQuerySet(DerivedValuesQueryset):
+    @transaction.atomic
+    def propagate_derived_values(self):
+        FileImporterBatch = apps.get_model("django_import_data.FileImporterBatch")
+        FileImporterBatch.objects.filter(
+            file_importer__in=self.values("id")
+        ).distinct().derive_values()
+
+    def annotate_num_file_importers(self):
+        return self.annotate(num_file_importers=Count("file_importers", distinct=True))
 
 
 class FileImporterQuerySet(DerivedValuesQueryset):
@@ -89,25 +97,27 @@ class FileImporterQuerySet(DerivedValuesQueryset):
             num_file_import_attempts=Count("file_import_attempts", distinct=True)
         )
 
-    def annotate_num_model_import_attempts(self):
-        FileImportAttempt = apps.get_model("django_import_data.FileImportAttempt")
+    def annotate_num_model_importers(self):
         return self.annotate(
-            num_model_import_attempts=Count(
-                "file_import_attempts__model_import_attempts",
+            num_model_importers=Count(
+                "file_import_attempts__model_importers",
                 filter=Q(file_import_attempts__file_importer__id=F("id")),
                 distinct=True,
             )
         )
 
 
+class ModelImporterQuerySet(DerivedValuesQueryset):
+    def annotate_num_model_import_attempts(self):
+        return self.annotate(
+            num_model_import_attempts=Count("model_import_attempts", distinct=True)
+        )
+
+
 class FileImportAttemptQuerySet(DerivedValuesQueryset):
     @transaction.atomic
     def propagate_derived_values(self):
-        FileImportBatch = apps.get_model("django_import_data.FileImportBatch")
         FileImporter = apps.get_model("django_import_data.FileImporter")
-        FileImportBatch.objects.filter(
-            file_import_attempts__in=self.values("id")
-        ).distinct().derive_values()
         FileImporter.objects.filter(
             file_import_attempts__in=self.values("id")
         ).distinct().derive_values()
@@ -128,9 +138,9 @@ class FileImportAttemptQuerySet(DerivedValuesQueryset):
 
         return result
 
-    def annotate_num_model_import_attempts(self):
+    def annotate_num_model_importers(self):
         return self.annotate(
-            num_model_import_attempts=Count("model_import_attempts", distinct=True)
+            num_model_importers=Count("model_importers", distinct=True)
         )
 
 
@@ -138,8 +148,14 @@ class ModelImportAttemptQuerySet(DerivedValuesQueryset):
     @transaction.atomic
     def propagate_derived_values(self):
         FileImportAttempt = apps.get_model("django_import_data.FileImportAttempt")
+        ModelImporter = apps.get_model("django_import_data.ModelImporter")
+
         FileImportAttempt.objects.filter(
-            model_import_attempts__in=self.values("id")
+            model_importers__in=self.values("id")
+        ).distinct().derive_values()
+
+        ModelImporter.objects.filter(
+            id__in=self.values("id")
         ).distinct().derive_values()
 
     @transaction.atomic

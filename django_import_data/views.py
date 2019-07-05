@@ -10,7 +10,7 @@ from .models import (
     ModelImportAttempt,
     FileImporter,
     FileImportAttempt,
-    FileImportBatch,
+    FileImporterBatch,
     RowData,
 )
 
@@ -115,6 +115,9 @@ class FileImporterCreateView(CreateView):
 def acknowledge_file_importer(request, pk):
     file_importer = get_object_or_404(FileImporter, id=pk)
     file_import_attempt = file_importer.latest_file_import_attempt
+    if not file_import_attempt:
+        messages.error(request, "No File Import Attempts; cannot acknowledge")
+        return HttpResponseRedirect(file_importer.get_absolute_url())
     if request.method == "POST":
         acknowledge = request.POST.get("acknowledge", None)
         if acknowledge is None:

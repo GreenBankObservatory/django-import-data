@@ -160,7 +160,7 @@ class FormMap:
         **kwargs,
     ):
         from django.contrib.contenttypes.models import ContentType
-        from django_import_data.models import ModelImportAttempt
+        from django_import_data.models import ModelImporter
         from .models import RowData
 
         if imported_by is None:
@@ -189,7 +189,7 @@ class FormMap:
         if useful_form_errors:
             all_errors["form_errors"] = useful_form_errors
         if not (conversion_errors or useful_form_errors):
-            model_import_attempt = ModelImportAttempt.objects.create_for_model(
+            __, model_import_attempt = ModelImporter.objects.create_with_attempt(
                 errors=all_errors,
                 file_import_attempt=file_import_attempt,
                 imported_by=imported_by,
@@ -207,7 +207,7 @@ class FormMap:
                 assert instance.id == form.data["original_pk"], "Aw man"
             return instance, model_import_attempt
 
-        model_import_attempt = ModelImportAttempt.objects.create_for_model(
+        __, model_import_attempt = ModelImporter.objects.create_with_attempt(
             errors=all_errors,
             file_import_attempt=file_import_attempt,
             imported_by=imported_by,

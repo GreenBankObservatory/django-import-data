@@ -12,115 +12,341 @@ class Migration(migrations.Migration):
 
     initial = True
 
-    dependencies = [
-        ('contenttypes', '0002_remove_content_type_name'),
-    ]
+    dependencies = [("contenttypes", "0002_remove_content_type_name")]
 
     operations = [
         migrations.CreateModel(
-            name='FileImportAttempt',
+            name="FileImportAttempt",
             fields=[
-                ('id', models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('status', models.CharField(choices=[('pending', 'Pending'), ('created_clean', 'Imported: No Errors'), ('created_dirty', 'Imported: Some Errors'), ('rejected', 'Rejected: Fatal Errors')], default='pending', max_length=13)),
-                ('created_on', models.DateTimeField(auto_now_add=True)),
-                ('modified_on', models.DateTimeField(auto_now=True, null=True)),
-                ('imported_from', models.CharField(default=None, help_text='Path to file that this was imported from', max_length=512)),
-                ('imported_by', models.CharField(max_length=128, null=True)),
-                ('creations', django.contrib.postgres.fields.jsonb.JSONField(default=dict, encoder=django_import_data.utils.DjangoErrorJSONEncoder, null=True)),
-                ('info', django.contrib.postgres.fields.jsonb.JSONField(default=dict, help_text='Stores any file-level info about the import', null=True)),
-                ('errors', django.contrib.postgres.fields.jsonb.JSONField(default=dict, encoder=django_import_data.utils.DjangoErrorJSONEncoder, help_text='Stores any file-level errors encountered during import', null=True)),
-                ('acknowledged', models.BooleanField(default=False)),
-                ('ignored_headers', django.contrib.postgres.fields.ArrayField(base_field=models.CharField(max_length=128), blank=True, help_text='Headers that were ignored during import', null=True, size=None)),
-                ('hash_when_imported', models.CharField(blank=True, max_length=40)),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "status",
+                    models.CharField(
+                        choices=[
+                            ("pending", "Pending"),
+                            ("created_clean", "Imported: No Errors"),
+                            ("created_dirty", "Imported: Some Errors"),
+                            ("rejected", "Rejected: Fatal Errors"),
+                        ],
+                        default="pending",
+                        max_length=13,
+                    ),
+                ),
+                ("created_on", models.DateTimeField(auto_now_add=True)),
+                ("modified_on", models.DateTimeField(auto_now=True, null=True)),
+                (
+                    "imported_from",
+                    models.CharField(
+                        default=None,
+                        help_text="Path to file that this was imported from",
+                        max_length=512,
+                    ),
+                ),
+                ("imported_by", models.CharField(max_length=128, null=True)),
+                (
+                    "creations",
+                    django.contrib.postgres.fields.jsonb.JSONField(
+                        default=dict,
+                        encoder=django_import_data.utils.DjangoErrorJSONEncoder,
+                        null=True,
+                    ),
+                ),
+                (
+                    "info",
+                    django.contrib.postgres.fields.jsonb.JSONField(
+                        default=dict,
+                        help_text="Stores any file-level info about the import",
+                        null=True,
+                    ),
+                ),
+                (
+                    "errors",
+                    django.contrib.postgres.fields.jsonb.JSONField(
+                        default=dict,
+                        encoder=django_import_data.utils.DjangoErrorJSONEncoder,
+                        help_text="Stores any file-level errors encountered during import",
+                        null=True,
+                    ),
+                ),
+                ("acknowledged", models.BooleanField(default=False)),
+                (
+                    "ignored_headers",
+                    django.contrib.postgres.fields.ArrayField(
+                        base_field=models.CharField(max_length=128),
+                        blank=True,
+                        help_text="Headers that were ignored during import",
+                        null=True,
+                        size=None,
+                    ),
+                ),
+                ("hash_when_imported", models.CharField(blank=True, max_length=40)),
             ],
             options={
-                'verbose_name': 'File Import Attempt',
-                'verbose_name_plural': 'File Import Attempts',
-                'ordering': ['-created_on'],
+                "verbose_name": "File Import Attempt",
+                "verbose_name_plural": "File Import Attempts",
+                "ordering": ["-created_on"],
             },
         ),
         migrations.CreateModel(
-            name='FileImportBatch',
+            name="FileImportBatch",
             fields=[
-                ('id', models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('status', models.CharField(choices=[('pending', 'Pending'), ('created_clean', 'Imported: No Errors'), ('created_dirty', 'Imported: Some Errors'), ('rejected', 'Rejected: Fatal Errors')], default='pending', max_length=13)),
-                ('created_on', models.DateTimeField(auto_now_add=True)),
-                ('modified_on', models.DateTimeField(auto_now=True, null=True)),
-                ('command', models.CharField(default=None, max_length=64)),
-                ('args', django.contrib.postgres.fields.ArrayField(base_field=models.CharField(max_length=256), size=None)),
-                ('kwargs', django.contrib.postgres.fields.jsonb.JSONField()),
-                ('errors', django.contrib.postgres.fields.jsonb.JSONField(default=dict, null=True)),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "status",
+                    models.CharField(
+                        choices=[
+                            ("pending", "Pending"),
+                            ("created_clean", "Imported: No Errors"),
+                            ("created_dirty", "Imported: Some Errors"),
+                            ("rejected", "Rejected: Fatal Errors"),
+                        ],
+                        default="pending",
+                        max_length=13,
+                    ),
+                ),
+                ("created_on", models.DateTimeField(auto_now_add=True)),
+                ("modified_on", models.DateTimeField(auto_now=True, null=True)),
+                ("command", models.CharField(default=None, max_length=64)),
+                (
+                    "args",
+                    django.contrib.postgres.fields.ArrayField(
+                        base_field=models.CharField(max_length=256), size=None
+                    ),
+                ),
+                ("kwargs", django.contrib.postgres.fields.jsonb.JSONField()),
+                (
+                    "errors",
+                    django.contrib.postgres.fields.jsonb.JSONField(
+                        default=dict, null=True
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'File Import Batch',
-                'verbose_name_plural': 'File Import Batches',
-                'ordering': ['-created_on'],
+                "verbose_name": "File Import Batch",
+                "verbose_name_plural": "File Import Batches",
+                "ordering": ["-created_on"],
             },
         ),
         migrations.CreateModel(
-            name='FileImporter',
+            name="FileImporter",
             fields=[
-                ('id', models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('status', models.CharField(choices=[('pending', 'Pending'), ('created_clean', 'Imported: No Errors'), ('created_dirty', 'Imported: Some Errors'), ('rejected', 'Rejected: Fatal Errors')], default='pending', max_length=13)),
-                ('created_on', models.DateTimeField(auto_now_add=True)),
-                ('modified_on', models.DateTimeField(auto_now=True, null=True)),
-                ('file_path', models.CharField(default=None, help_text='Path to the file that this imports', max_length=512, unique=True)),
-                ('importer_name', models.CharField(default=None, help_text='The name of the Importer to use', max_length=128)),
-                ('hash_on_disk', models.CharField(blank=True, help_text='SHA-1 hash of the file on disk. If blank, the file is missing', max_length=40, null=True, unique=True)),
-                ('file_modified_on', models.DateTimeField(blank=True, null=True)),
-                ('hash_checked_on', models.DateTimeField(blank=True, null=True)),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "status",
+                    models.CharField(
+                        choices=[
+                            ("pending", "Pending"),
+                            ("created_clean", "Imported: No Errors"),
+                            ("created_dirty", "Imported: Some Errors"),
+                            ("rejected", "Rejected: Fatal Errors"),
+                        ],
+                        default="pending",
+                        max_length=13,
+                    ),
+                ),
+                ("created_on", models.DateTimeField(auto_now_add=True)),
+                ("modified_on", models.DateTimeField(auto_now=True, null=True)),
+                (
+                    "file_path",
+                    models.CharField(
+                        default=None,
+                        help_text="Path to the file that this imports",
+                        max_length=512,
+                        unique=True,
+                    ),
+                ),
+                (
+                    "importer_name",
+                    models.CharField(
+                        default=None,
+                        help_text="The name of the Importer to use",
+                        max_length=128,
+                    ),
+                ),
+                (
+                    "hash_on_disk",
+                    models.CharField(
+                        blank=True,
+                        help_text="SHA-1 hash of the file on disk. If blank, the file is missing",
+                        max_length=40,
+                        null=True,
+                        unique=True,
+                    ),
+                ),
+                ("file_modified_on", models.DateTimeField(blank=True, null=True)),
+                ("hash_checked_on", models.DateTimeField(blank=True, null=True)),
             ],
             options={
-                'verbose_name': 'File Importer',
-                'verbose_name_plural': 'File Importers',
-                'ordering': ['-created_on'],
+                "verbose_name": "File Importer",
+                "verbose_name_plural": "File Importers",
+                "ordering": ["-created_on"],
             },
         ),
         migrations.CreateModel(
-            name='RowData',
+            name="RowData",
             fields=[
-                ('id', models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('data', django.contrib.postgres.fields.jsonb.JSONField(encoder=django.core.serializers.json.DjangoJSONEncoder, help_text="Stores a 'row' (or similar construct) of data as it was originally encountered")),
-                ('row_num', models.PositiveIntegerField()),
-                ('headers', django.contrib.postgres.fields.jsonb.JSONField(null=True)),
-                ('errors', django.contrib.postgres.fields.jsonb.JSONField(default=dict, null=True)),
-                ('file_import_attempt', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='rows', to='django_import_data.FileImportAttempt')),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "data",
+                    django.contrib.postgres.fields.jsonb.JSONField(
+                        encoder=django.core.serializers.json.DjangoJSONEncoder,
+                        help_text="Stores a 'row' (or similar construct) of data as it was originally encountered",
+                    ),
+                ),
+                ("row_num", models.PositiveIntegerField()),
+                ("headers", django.contrib.postgres.fields.jsonb.JSONField(null=True)),
+                (
+                    "errors",
+                    django.contrib.postgres.fields.jsonb.JSONField(
+                        default=dict, null=True
+                    ),
+                ),
+                (
+                    "file_import_attempt",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="rows",
+                        to="django_import_data.FileImportAttempt",
+                    ),
+                ),
             ],
-            options={
-                'verbose_name': 'Row Data',
-                'verbose_name_plural': 'Row Data',
-            },
+            options={"verbose_name": "Row Data", "verbose_name_plural": "Row Data"},
         ),
         migrations.CreateModel(
-            name='ModelImportAttempt',
+            name="ModelImportAttempt",
             fields=[
-                ('id', models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('status', models.CharField(choices=[('pending', 'Pending'), ('created_clean', 'Imported: No Errors'), ('created_dirty', 'Imported: Some Errors'), ('rejected', 'Rejected: Fatal Errors')], default='pending', max_length=13)),
-                ('created_on', models.DateTimeField(auto_now_add=True)),
-                ('modified_on', models.DateTimeField(auto_now=True, null=True)),
-                ('is_active', models.BooleanField(default=True)),
-                ('importee_field_data', django.contrib.postgres.fields.jsonb.JSONField(default=dict, encoder=django_import_data.utils.DjangoErrorJSONEncoder, help_text='The original data used to create this Audit')),
-                ('errors', django.contrib.postgres.fields.jsonb.JSONField(default=dict, encoder=django_import_data.utils.DjangoErrorJSONEncoder, help_text='Stores any errors encountered during the creation of the auditee')),
-                ('error_summary', django.contrib.postgres.fields.jsonb.JSONField(default=dict, encoder=django_import_data.utils.DjangoErrorJSONEncoder, help_text="Stores any 'summary' information that might need to be associated")),
-                ('imported_by', models.CharField(default=None, max_length=128)),
-                ('acknowledged', models.BooleanField(default=False)),
-                ('content_type', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='contenttypes.ContentType')),
-                ('file_import_attempt', models.ForeignKey(blank=True, help_text='Reference to the FileImportAttempt this was created from', null=True, on_delete=django.db.models.deletion.CASCADE, related_name='model_import_attempts', to='django_import_data.FileImportAttempt')),
-                ('row_data', models.ForeignKey(help_text='Reference to the original data used to create this audit group', on_delete=django.db.models.deletion.CASCADE, related_name='model_import_attempts', to='django_import_data.RowData')),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "status",
+                    models.CharField(
+                        choices=[
+                            ("pending", "Pending"),
+                            ("created_clean", "Imported: No Errors"),
+                            ("created_dirty", "Imported: Some Errors"),
+                            ("rejected", "Rejected: Fatal Errors"),
+                        ],
+                        default="pending",
+                        max_length=13,
+                    ),
+                ),
+                ("created_on", models.DateTimeField(auto_now_add=True)),
+                ("modified_on", models.DateTimeField(auto_now=True, null=True)),
+                ("is_active", models.BooleanField(default=True)),
+                (
+                    "importee_field_data",
+                    django.contrib.postgres.fields.jsonb.JSONField(
+                        default=dict,
+                        encoder=django_import_data.utils.DjangoErrorJSONEncoder,
+                        help_text="The original data used to create this Audit",
+                    ),
+                ),
+                (
+                    "errors",
+                    django.contrib.postgres.fields.jsonb.JSONField(
+                        default=dict,
+                        encoder=django_import_data.utils.DjangoErrorJSONEncoder,
+                        help_text="Stores any errors encountered during the creation of the auditee",
+                    ),
+                ),
+                (
+                    "error_summary",
+                    django.contrib.postgres.fields.jsonb.JSONField(
+                        default=dict,
+                        encoder=django_import_data.utils.DjangoErrorJSONEncoder,
+                        help_text="Stores any 'summary' information that might need to be associated",
+                    ),
+                ),
+                ("imported_by", models.CharField(default=None, max_length=128)),
+                ("acknowledged", models.BooleanField(default=False)),
+                (
+                    "content_type",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to="contenttypes.ContentType",
+                    ),
+                ),
+                (
+                    "file_import_attempt",
+                    models.ForeignKey(
+                        blank=True,
+                        help_text="Reference to the FileImportAttempt this was created from",
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="model_import_attempts",
+                        to="django_import_data.FileImportAttempt",
+                    ),
+                ),
+                (
+                    "row_data",
+                    models.ForeignKey(
+                        help_text="Reference to the original data used to create this audit group",
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="model_import_attempts",
+                        to="django_import_data.RowData",
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'Model Import Attempt',
-                'verbose_name_plural': 'Model Import Attempts',
+                "verbose_name": "Model Import Attempt",
+                "verbose_name_plural": "Model Import Attempts",
             },
         ),
         migrations.AddField(
-            model_name='fileimportattempt',
-            name='file_import_batch',
-            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='file_import_attempts', to='django_import_data.FileImportBatch'),
+            model_name="fileimportattempt",
+            name="file_import_batch",
+            field=models.ForeignKey(
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="file_import_attempts",
+                to="django_import_data.FileImportBatch",
+            ),
         ),
         migrations.AddField(
-            model_name='fileimportattempt',
-            name='file_importer',
-            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='file_import_attempts', to='django_import_data.FileImporter'),
+            model_name="fileimportattempt",
+            name="file_importer",
+            field=models.ForeignKey(
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="file_import_attempts",
+                to="django_import_data.FileImporter",
+            ),
         ),
     ]

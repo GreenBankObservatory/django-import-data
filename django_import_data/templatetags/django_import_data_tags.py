@@ -3,10 +3,11 @@ import json as json_
 from django import template
 
 from django_import_data.models import (
-    FileImportBatch,
-    FileImporter,
     FileImportAttempt,
+    FileImporter,
+    FileImporterBatch,
     ModelImportAttempt,
+    ModelImporter,
     RowData,
 )
 
@@ -79,30 +80,38 @@ def spaces_to_underscores(string):
 
 @register.inclusion_tag("breadcrumb/breadcrumb.html", takes_context=False)
 def make_breadcrumb(item):
-    if isinstance(item, FileImportBatch):
-        context = {"file_import_batch": item}
-        current = "file_import_batch"
+    if isinstance(item, FileImporterBatch):
+        context = {"file_importer_batch": item}
+        current = "file_importer_batch"
     elif isinstance(item, FileImporter):
         context = {"file_importer": item}
         current = "file_importer"
     elif isinstance(item, FileImportAttempt):
         context = {
-            "file_import_batch": item.file_import_batch,
+            "file_importer_batch": item.file_importer.file_importer_batch,
             "file_importer": item.file_importer,
             "file_import_attempt": item,
         }
         current = "file_import_attempt"
     elif isinstance(item, RowData):
         context = {
-            "file_import_batch": item.file_import_attempt.file_import_batch,
+            "file_importer_batch": item.file_import_attempt.file_importer.file_importer_batch,
             "file_importer": item.file_import_attempt.file_importer,
             "file_import_attempt": item.file_import_attempt,
             "row_data": item,
         }
         current = "row_data"
+    elif isinstance(item, ModelImporter):
+        context = {
+            "file_importer_batch": item.file_import_attempt.file_importer.file_importer_batch,
+            "file_importer": item.file_import_attempt.file_importer,
+            "file_import_attempt": item.file_import_attempt,
+            "model_importer": item,
+        }
+        current = "model_importer"
     elif isinstance(item, ModelImportAttempt):
         context = {
-            "file_import_batch": item.file_import_attempt.file_import_batch,
+            "file_importer_batch": item.file_import_attempt.file_importer.file_importer_batch,
             "file_importer": item.file_import_attempt.file_importer,
             "file_import_attempt": item.file_import_attempt,
             "model_import_attempt": item,
@@ -113,7 +122,7 @@ def make_breadcrumb(item):
         current = "model_import_attempt"
     elif getattr(item, "model_import_attempt", None):
         context = {
-            "file_import_batch": item.model_import_attempt.file_import_attempt.file_import_batch
+            "file_importer_batch": item.model_import_attempt.file_import_attempt.file_importer.file_importer_batch
             if item.model_import_attempt.file_import_attempt
             else None,
             "file_importer": item.model_import_attempt.file_import_attempt.file_importer

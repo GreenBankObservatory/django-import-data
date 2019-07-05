@@ -299,7 +299,7 @@ class BaseImportCommand(BaseCommand):
 
         return info, errors
 
-    def handle_file(self, path, file_import_batch, **options):
+    def handle_file(self, path, file_importer_batch, **options):
         FileImporter = apps.get_model("django_import_data.FileImporter")
         FileImportAttempt = apps.get_model("django_import_data.FileImportAttempt")
         RowData = apps.get_model("django_import_data.RowData")
@@ -328,6 +328,7 @@ class BaseImportCommand(BaseCommand):
             file_importer.save()
         elif num_file_importers_found == 0:
             file_importer = FileImporter.objects.create(
+                file_importer_batch=file_importer_batch,
                 file_path=path,
                 importer_name=current_command,
                 file_modified_on=file_modified_on,
@@ -384,7 +385,6 @@ class BaseImportCommand(BaseCommand):
         if file_level_errors and not options["durable"]:
             raise ValueError(f"One or more file-level errors: {file_level_errors}")
         file_import_attempt = FileImportAttempt.objects.create(
-            file_import_batch=file_import_batch,
             file_importer=file_importer,
             imported_from=path,
             info=file_level_info,
@@ -531,30 +531,30 @@ class BaseImportCommand(BaseCommand):
         return [dict(creation) for creation in creations], error_summary
 
     def handle_files(self, files_to_process, **options):
-        FileImportBatch = apps.get_model("django_import_data.FileImportBatch")
+        FileImporterBatch = apps.get_model("django_import_data.FileImporterBatch")
         current_command = self.__module__.split(".")[-1]
         # NOTE: Any future positional args will need to be popped out here, too
         paths = options.pop("paths")
-        file_import_batch = FileImportBatch.objects.create(
+        file_importer_batch = FileImporterBatch.objects.create(
             command=current_command, args=paths, kwargs=options
         )
         for path in files_to_process:
             if self.verbosity == 3:
                 tqdm.write(f"Processing {path}")
-            file_import_attempt = self.handle_file(path, file_import_batch, **options)
+            file_import_attempt = self.handle_file(path, file_importer_batch, **options)
             assert file_import_attempt is not None
 
-        return file_import_batch
+        return file_importer_batch
 
     def post_import_actions(self):
         pass
 
-    def post_import_checks(self, file_import_batch):
+    def post_import_checks(self, file_importer_batch):
         tqdm.write("All Batch-Level Errors")
         all_file_errors = [
-            fia.errors
-            for fia in file_import_batch.file_import_attempts.all()
-            if fia and fia.errors
+            fi.latest_file_import_attempt.errors
+            for fi in file_importer_batch.file_importers.all()
+            if fi and fi.latest_file_import_attempt.errors
         ]
 
         unique_file_error_types = set(
@@ -571,10 +571,10 @@ class BaseImportCommand(BaseCommand):
             unique_errors = set(error for errors in errors_by_file for error in errors)
             all_unique_errors[error_type] = unique_errors
 
-        file_import_batch.errors.update(
+        file_importer_batch.errors.update(
             {key: list(value) for key, value in all_unique_errors.items()}
         )
-        file_import_batch.save()
+        file_importer_batch.save()
         tqdm.write(pformat(all_unique_errors))
         tqdm.write("=" * 80)
 
@@ -629,15 +629,15 @@ class BaseImportCommand(BaseCommand):
             files_to_process = tqdm(files_to_process, desc=self.help, unit="files")
 
         if options["no_transaction"]:
-            file_import_batch = self.handle_files(files_to_process, **options)
+            file_importer_batch = self.handle_files(files_to_process, **options)
         else:
             with transaction.atomic():
-                file_import_batch = self.handle_files(files_to_process, **options)
+                file_importer_batch = self.handle_files(files_to_process, **options)
 
                 if options["dry_run"]:
                     transaction.set_rollback(True)
                     tqdm.write("DRY RUN; rolling back changes")
 
-        file_import_batch.errors["duplicate_paths"] = duplicate_paths
-        self.post_import_checks(file_import_batch)
+        file_importer_batch.errors["duplicate_paths"] = duplicate_paths
+        self.post_import_checks(file_importer_batch)
         self.post_import_actions()

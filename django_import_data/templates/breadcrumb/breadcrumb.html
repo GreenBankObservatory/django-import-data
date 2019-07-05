@@ -4,22 +4,22 @@
   <div class="collapse navbar-collapse" id="navbarSupportedContent">
       <ol class="breadcrumb">
         <li
-            {% if current == "file_import_batch" %}
+            {% if current == "file_importer_batch" %}
             class="breadcrumb-item active"
             aria-current="page"
             {% else %}
             class="breadcrumb-item"
             {% endif %}
         >
-        {% if file_import_batch and current != "file_import_batch" %}
+        {% if file_importer_batch and current != "file_importer_batch" %}
             <a
-                href="{% url 'fileimportbatch_detail' file_import_batch.id %}"
+                href="{% url 'fileimporterbatch_detail' file_importer_batch.id %}"
                 title="The batch of files that a file import attempt was imported within. This will summarize any all file-level errors in a given import batch."
             >
-                File Import Batch
+                File Importer Batch
             </a>
         {% else %}
-            File Import Batch
+            File Importer Batch
         {% endif %}
         </li>
 
@@ -36,10 +36,10 @@
                 href="{% url 'fileimporter_detail' file_importer.id %}"
                 title="History of every time an attempt has been made to import the file from which a model was created."
             >
-                File Import History
+                File Importer
             </a>
         {% else %}
-            File Import History
+            File Importer
         {% endif %}
         </li>
 
@@ -84,6 +84,30 @@
             Row Import Attempt
         {% endif %}
         </li>
+
+        <li
+            {% if current == "model_importer" %}
+            class="breadcrumb-item active"
+            aria-current="page"
+            {% else %}
+            class="breadcrumb-item"
+            {% endif %}
+        >
+        {% if model_importer and current != "model_importer" %}
+            <a
+                href={% url "modelimporter_detail" model_importer.id %}
+                {% if importee %}
+                title="The model importer that created this {{ object|model_name|default:'Model' }}"
+                {% else %}
+                title="The model importer that attempted to created a {{ object|model_name|default:'Model' }}"
+                {% endif %}
+            >
+                {{ model_importer.importee_class|model_name }} Importer
+            </a>
+        {% else %}
+            {{ model_importer.importee_class|model_name|default:"Model" }} Importer
+        </li>
+        {% endif %}
 
         <li
             {% if current == "model_import_attempt" %}
