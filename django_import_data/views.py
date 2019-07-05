@@ -23,28 +23,33 @@ class CreateFromImportAttemptView(CreateView):
         return self.model_import_attempt.importee_field_data
 
     def form_valid(self, form):
-        if self.model_import_attempt.model_importer.models.exists():
-            messages.error(self.request, f"Error! Already exists yo")
-            return redirect(
-                "modelimporter_detail", pk=self.model_import_attempt.model_importer.id
-            )
-
-        # TODO: WTF is this
-        self.object = form.save(commit=False)
-        self.object.row_data = self.model_import_attempt.model_importer.row_data
-        self.object.model_importers.set([self.model_import_attempt.model_importer])
-        form.save()
-
+        # if self.model_import_attempt.model_importer.models.exists():
+        #     messages.error(self.request, f"Error! Already exists yo")
+        #     return redirect(
+        #         "modelimporter_detail", pk=self.model_import_attempt.model_importer.id
+        #     )
+        self.object = form.save()
+        # self.object = form.save(commit=False)
+        # self.object.row_data = self.model_import_attempt.model_importer.row_data
+        # self.object.model_importers.set([self.model_import_attempt.model_importer])
+        # form.save()
         try:
-            audit = ModelImportAttempt.objects.create(
-                model_importer=self.model_import_attempt.model_importer,
+            model_import_attempt = ModelImportAttempt.objects.create_for_model(
+                row_data=self.model_import_attempt.row_data,
                 importee_field_data=form.cleaned_data,
                 errors={},
+                file_import_attempt=self.model_import_attempt.file_import_attempt,
+                imported_by="Web UI",
+                model=self.object,
+                status=self.model_import_attempt.STATUSES.created_clean.db_value,
             )
         except ValueError as error:
             messages.error(self.request, f"Error! {error}")
         else:
-            messages.success(self.request, f"Created audit: {audit}")
+            messages.success(
+                self.request, f"Created Model Import Attempt: {model_import_attempt}"
+            )
+            messages.success(self.request, f"Created Model: {self.object}")
 
         # From FormMixin
         return HttpResponseRedirect(self.get_success_url())

@@ -429,10 +429,13 @@ class AbstractBaseModelImportAttempt(TrackedModel, ImportStatusModel):
         ordering = ["-created_on"]
 
     def __str__(self):
-        return (
-            f"{self.content_type} imported from "
-            f"{os.path.basename(self.imported_from)} ({self.get_status_display()})"
-        )
+        if self.file_import_attempt:
+            return (
+                f"{self.content_type} imported from "
+                f"{os.path.basename(self.imported_from)} ({self.STATUSES[self.status].value})"
+            )
+
+        return f"{self.content_type}: {self.STATUSES[self.status].value}"
 
     def save(self, *args, propagate_derived_values=True, **kwargs):
         if self.status == ImportStatusModel.STATUSES.pending.db_value:
@@ -442,7 +445,7 @@ class AbstractBaseModelImportAttempt(TrackedModel, ImportStatusModel):
                 self.status = ImportStatusModel.STATUSES.created_clean.db_value
 
         super().save(*args, **kwargs)
-        if propagate_derived_values:
+        if propagate_derived_values and self.file_import_attempt:
             self.file_import_attempt.save(
                 propagate_derived_values=propagate_derived_values
             )
@@ -458,7 +461,9 @@ class AbstractBaseModelImportAttempt(TrackedModel, ImportStatusModel):
             importee_str=f"({self.importee}) " if self.importee else "",
             importee_field_data=pformat(self.importee_field_data),
             row_data=pformat(self.row_data.data),
-            file_path=self.file_import_attempt.imported_from,
+            file_path=self.file_import_attempt.imported_from
+            if self.file_import_attempt
+            else None,
         )
 
     @property
@@ -479,7 +484,9 @@ class AbstractBaseModelImportAttempt(TrackedModel, ImportStatusModel):
 
     @cached_property
     def imported_from(self):
-        return self.file_import_attempt.imported_from
+        return (
+            self.file_import_attempt.imported_from if self.file_import_attempt else None
+        )
 
     # TODO: UNIt tests!
     @transaction.atomic

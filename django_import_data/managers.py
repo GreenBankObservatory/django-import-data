@@ -16,9 +16,11 @@ from .querysets import (
 
 class ModelImportAttemptManager(models.Manager):
     def create_for_model(self, model, **kwargs):
-        return self.create(
-            content_type=ContentType.objects.get_for_model(model), **kwargs
-        )
+        content_type = ContentType.objects.get_for_model(model)
+        model_import_attempt = self.create(content_type=content_type, **kwargs)
+        model.model_import_attempt = model_import_attempt
+        model.save()
+        return model_import_attempt
 
     def get_queryset(self):
         return ModelImportAttemptQuerySet(self.model, using=self._db)
