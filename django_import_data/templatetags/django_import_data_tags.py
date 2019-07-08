@@ -84,7 +84,10 @@ def make_breadcrumb(item):
         context = {"file_importer_batch": item}
         current = "file_importer_batch"
     elif isinstance(item, FileImporter):
-        context = {"file_importer": item}
+        context = {
+            "file_importer_batch": item.file_importer_batch,
+            "file_importer": item,
+        }
         current = "file_importer"
     elif isinstance(item, FileImportAttempt):
         context = {
@@ -103,9 +106,9 @@ def make_breadcrumb(item):
         current = "row_data"
     elif isinstance(item, ModelImporter):
         context = {
-            "file_importer_batch": item.file_import_attempt.file_importer.file_importer_batch,
-            "file_importer": item.file_import_attempt.file_importer,
-            "file_import_attempt": item.file_import_attempt,
+            "file_importer_batch": item.row_data.file_import_attempt.file_importer.file_importer_batch,
+            "file_importer": item.row_data.file_import_attempt.file_importer,
+            "file_import_attempt": item.row_data.file_import_attempt,
             "model_importer": item,
             "importee_class": item.latest_model_import_attempt.importee_class,
             "row_data": item.latest_model_import_attempt.row_data,

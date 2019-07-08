@@ -10,6 +10,7 @@ from .querysets import (
     FileImporterQuerySet,
     ModelImportAttemptQuerySet,
     ModelImporterQuerySet,
+    RowDataQuerySet,
 )
 
 
@@ -34,18 +35,23 @@ class DerivedValuesManager(models.Manager):
         return instance
 
 
+class RowDataManager(DerivedValuesManager):
+    def get_queryset(self):
+        return RowDataQuerySet(self.model, using=self._db)
+
+
 class ModelImporterManager(DerivedValuesManager):
     def create_with_attempt(
         self,
         model,
-        file_import_attempt,
+        row_data,
         errors=None,
         derive_cached_values=False,
         propagate_derived_values=False,
         **kwargs,
     ):
         ModelImportAttempt = apps.get_model("django_import_data.ModelImportAttempt")
-        model_importer = self.create(file_import_attempt=file_import_attempt)
+        model_importer = self.create(row_data=row_data)
         model_import_attempt = ModelImportAttempt.objects.create_for_model(
             model=model,
             model_importer=model_importer,

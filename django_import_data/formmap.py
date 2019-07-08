@@ -149,15 +149,8 @@ class FormMap:
 
         return (rendered_form, conversion_errors)
 
-    # TODO: remove file_import_attempt; use row_data.file_import_attempt
     def save_with_audit(
-        self,
-        row_data,
-        data=None,
-        form=None,
-        file_import_attempt=None,
-        imported_by=None,
-        **kwargs,
+        self, row_data, data=None, form=None, imported_by=None, **kwargs
     ):
         from django.contrib.contenttypes.models import ContentType
         from django_import_data.models import ModelImporter
@@ -191,7 +184,6 @@ class FormMap:
         if not (conversion_errors or useful_form_errors):
             __, model_import_attempt = ModelImporter.objects.create_with_attempt(
                 errors=all_errors,
-                file_import_attempt=file_import_attempt,
                 imported_by=imported_by,
                 importee_field_data=form.data,
                 model=form.Meta.model,
@@ -201,7 +193,7 @@ class FormMap:
             if "original_pk" in form.data:
                 instance.pk = form.data["original_pk"]
             instance.model_import_attempt = model_import_attempt
-            instance.save(propagate_cached_values=False, derive_cached_values=False)
+            instance.save()
             instance.refresh_from_db()
             if "original_pk" in form.data:
                 assert instance.id == form.data["original_pk"], "Aw man"
@@ -209,7 +201,6 @@ class FormMap:
 
         __, model_import_attempt = ModelImporter.objects.create_with_attempt(
             errors=all_errors,
-            file_import_attempt=file_import_attempt,
             imported_by=imported_by,
             importee_field_data=form.data,
             model=form.Meta.model,

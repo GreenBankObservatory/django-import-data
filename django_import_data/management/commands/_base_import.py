@@ -328,7 +328,7 @@ class BaseImportCommand(BaseCommand):
             file_importer.hash_checked_on = hash_checked_on
             file_importer.file_importer_batch = file_importer_batch
             file_importer.save(
-                propagate_cached_values=False, derive_cached_values=False
+                propagate_derived_values=False, derive_cached_values=False
             )
         elif num_file_importers_found == 0:
             print("num_file_importers_found", num_file_importers_found)
@@ -348,7 +348,7 @@ class BaseImportCommand(BaseCommand):
             )
 
         file_importer.file_importer_batch = file_importer_batch
-        file_importer.save(propagate_cached_values=False, derive_cached_values=False)
+        file_importer.save(propagate_derived_values=False, derive_cached_values=False)
 
         latest_file_import_attempt = file_importer.latest_file_import_attempt
         if latest_file_import_attempt:
@@ -393,7 +393,6 @@ class BaseImportCommand(BaseCommand):
         if file_level_errors and not options["durable"]:
             raise ValueError(f"One or more file-level errors: {file_level_errors}")
 
-        print("sanity: fib", file_importer.file_importer_batch.id)
         file_import_attempt = FileImportAttempt.objects.create(
             file_importer=file_importer,
             imported_from=path,
@@ -434,13 +433,11 @@ class BaseImportCommand(BaseCommand):
             row_data = RowData.objects.create(
                 row_num=ri, data=row, file_import_attempt=file_import_attempt
             )
-            self.handle_record(
-                row_data, file_import_attempt, durable=options["durable"]
-            )
+            self.handle_record(row_data, durable=options["durable"])
             errors = {
-                import_attempt.imported_by: import_attempt.errors
-                for import_attempt in row_data.model_import_attempts.all()
-                if import_attempt.errors
+                model_importer.latest_model_import_attempt.imported_by: model_importer.latest_model_import_attempt.errors
+                for model_importer in row_data.model_importers.all()
+                if model_importer.latest_model_import_attempt.errors
             }
             # TODO: Make status an int in the DB so we can do calcs easier
             if errors:
@@ -460,7 +457,7 @@ class BaseImportCommand(BaseCommand):
         file_import_attempt.errors.update(errors)
         file_import_attempt.ignored_headers = self.IGNORED_HEADERS
         file_import_attempt.save(
-            propagate_cached_values=False, derive_cached_values=False
+            propagate_derived_values=False, derive_cached_values=False
         )
         return file_import_attempt
 
@@ -471,11 +468,15 @@ class BaseImportCommand(BaseCommand):
         total_form_errors = 0
         total_conversion_errors = 0
         creations = (
-            file_import_attempt.rows.filter(
-                model_import_attempts__status__startswith="created"
+            file_import_attempt.row_datas.filter(
+                model_importers__model_import_attempts__status__in=[2, 3]
             )
-            .values(model=F("model_import_attempts__content_type__model"))
-            .annotate(creation_count=Count("model_import_attempts__status"))
+            .values(
+                model=F("model_importers__model_import_attempts__content_type__model")
+            )
+            .annotate(
+                creation_count=Count("model_importers__model_import_attempts__status")
+            )
         )
 
         for row_errors in all_errors:
@@ -591,7 +592,7 @@ class BaseImportCommand(BaseCommand):
             {key: list(value) for key, value in all_unique_errors.items()}
         )
         file_importer_batch.save(
-            propagate_cached_values=False, derive_cached_values=False
+            propagate_derived_values=False, derive_cached_values=False
         )
         tqdm.write(pformat(all_unique_errors))
         tqdm.write("=" * 80)

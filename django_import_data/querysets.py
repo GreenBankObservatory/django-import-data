@@ -116,21 +116,52 @@ class FileImporterQuerySet(DerivedValuesQueryset):
             num_file_import_attempts=Count("file_import_attempts", distinct=True)
         )
 
+    def annotate_num_row_datas(self):
+        return self.annotate(
+            num_row_datas=Count(
+                "file_import_attempts__row_datas",
+                filter=Q(
+                    file_import_attempts__row_datas__file_import_attempt__file_importer__id=F(
+                        "id"
+                    )
+                ),
+                distinct=True,
+            )
+        )
+
     def annotate_num_model_importers(self):
         return self.annotate(
             num_model_importers=Count(
-                "file_import_attempts__model_importers",
-                filter=Q(file_import_attempts__file_importer__id=F("id")),
+                "file_import_attempts__row_datas__model_importers",
+                filter=Q(
+                    file_import_attempts__row_datas__file_import_attempt__file_importer__id=F(
+                        "id"
+                    )
+                ),
                 distinct=True,
             )
+        )
+
+
+class RowDataQuerySet(DerivedValuesQueryset):
+    @transaction.atomic
+    def propagate_derived_values(self):
+        FileImportAttempt = apps.get_model("django_import_data.FileImportAttempt")
+        FileImportAttempt.objects.filter(
+            row_datas__in=self.values("id")
+        ).distinct().derive_values()
+
+    def annotate_num_model_importers(self):
+        return self.annotate(
+            num_model_importers=Count("model_importers", distinct=True)
         )
 
 
 class ModelImporterQuerySet(DerivedValuesQueryset):
     @transaction.atomic
     def propagate_derived_values(self):
-        FileImportAttempt = apps.get_model("django_import_data.FileImportAttempt")
-        FileImportAttempt.objects.filter(
+        RowData = apps.get_model("django_import_data.RowData")
+        RowData.objects.filter(
             model_importers__in=self.values("id")
         ).distinct().derive_values()
 
@@ -150,7 +181,7 @@ class FileImportAttemptQuerySet(DerivedValuesQueryset):
 
     def annotate_num_model_importers(self):
         return self.annotate(
-            num_model_importers=Count("model_importers", distinct=True)
+            num_model_importers=Count("row_datas__model_importers", distinct=True)
         )
 
 
