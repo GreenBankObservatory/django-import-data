@@ -321,13 +321,18 @@ class BaseImportCommand(BaseCommand):
         existing_file_importers = FileImporter.objects.filter(file_path=path)
         num_file_importers_found = existing_file_importers.count()
         if num_file_importers_found == 1:
+            print("num_file_importers_found", num_file_importers_found)
             file_importer = existing_file_importers.first()
             file_importer_created = False
             file_importer.hash_on_disk = hash_on_disk
             file_importer.hash_checked_on = hash_checked_on
-            file_importer.save()
+            file_importer.file_importer_batch = file_importer_batch
+            file_importer.save(
+                propagate_cached_values=False, derive_cached_values=False
+            )
         elif num_file_importers_found == 0:
-            file_importer = FileImporter.objects.create(
+            print("num_file_importers_found", num_file_importers_found)
+            file_importer = FileImporter.objects.create_fast(
                 file_importer_batch=file_importer_batch,
                 file_path=path,
                 importer_name=current_command,
@@ -341,6 +346,9 @@ class BaseImportCommand(BaseCommand):
                 f">1 FIs found for {path}. This should be impossible "
                 "due to unique constraint; something is very wrong"
             )
+
+        file_importer.file_importer_batch = file_importer_batch
+        file_importer.save(propagate_cached_values=False, derive_cached_values=False)
 
         latest_file_import_attempt = file_importer.latest_file_import_attempt
         if latest_file_import_attempt:
@@ -384,6 +392,8 @@ class BaseImportCommand(BaseCommand):
             file_level_errors["misc"] = ["file_missing"]
         if file_level_errors and not options["durable"]:
             raise ValueError(f"One or more file-level errors: {file_level_errors}")
+
+        print("sanity: fib", file_importer.file_importer_batch.id)
         file_import_attempt = FileImportAttempt.objects.create(
             file_importer=file_importer,
             imported_from=path,
@@ -449,7 +459,9 @@ class BaseImportCommand(BaseCommand):
         file_import_attempt.creations = creations
         file_import_attempt.errors.update(errors)
         file_import_attempt.ignored_headers = self.IGNORED_HEADERS
-        file_import_attempt.save()
+        file_import_attempt.save(
+            propagate_cached_values=False, derive_cached_values=False
+        )
         return file_import_attempt
 
         # raise ValueError("hmmm")
@@ -538,10 +550,14 @@ class BaseImportCommand(BaseCommand):
         file_importer_batch = FileImporterBatch.objects.create(
             command=current_command, args=paths, kwargs=options
         )
+        print("CRETATED", file_importer_batch)
         for path in files_to_process:
             if self.verbosity == 3:
                 tqdm.write(f"Processing {path}")
             file_import_attempt = self.handle_file(path, file_importer_batch, **options)
+            print(
+                f"handle_files: file_import_attempt: {file_import_attempt.id}; {file_import_attempt.file_importer.file_importer_batch.id}"
+            )
             assert file_import_attempt is not None
 
         return file_importer_batch
@@ -574,7 +590,9 @@ class BaseImportCommand(BaseCommand):
         file_importer_batch.errors.update(
             {key: list(value) for key, value in all_unique_errors.items()}
         )
-        file_importer_batch.save()
+        file_importer_batch.save(
+            propagate_cached_values=False, derive_cached_values=False
+        )
         tqdm.write(pformat(all_unique_errors))
         tqdm.write("=" * 80)
 

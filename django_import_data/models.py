@@ -120,16 +120,20 @@ class AbstractBaseFileImporterBatch(ImportStatusModel, TrackedModel):
     def delete_imported_models(self):
         """Delete all models imported by this FIB"""
 
+        total_num_fi_deletions = 0
         total_num_fia_deletions = 0
         total_num_mia_deletions = 0
         all_mia_deletions = Counter()
         # For every ContentType imported by this FIB...
-        for fia in self.file_import_attempts.all():
+        for fi in self.file_importers.all():
             # ...and delete them:
-            num_fia_deletions, fia_deletions = fia.delete_imported_models()
-            total_num_fia_deletions += 1
-            total_num_mia_deletions += num_fia_deletions
-            all_mia_deletions += fia_deletions
+            num_fia_deletions, num_mia_deletions, all_mia_deletions = (
+                fi.delete_imported_models()
+            )
+            total_num_fi_deletions += 1
+            total_num_fia_deletions += num_fia_deletions
+            total_num_mia_deletions += num_mia_deletions
+            all_mia_deletions += all_mia_deletions
 
         return (total_num_fia_deletions, total_num_mia_deletions, all_mia_deletions)
 
@@ -141,9 +145,8 @@ class AbstractBaseFileImporterBatch(ImportStatusModel, TrackedModel):
         else:
             args = self.args
         num_fias_deleted, num_models_deleted, deletions = self.delete_imported_models()
-        print(num_fias_deleted, num_models_deleted, deletions)
         call_command(self.command, *args, **{**self.kwargs, "overwrite": True})
-        return FileImporterBatch.objects.first()
+        return FileImporterBatch.objects.order_by("created_on").last()
 
     def derive_status(self):
         """FIB status is the most severe status of its most recent FIs"""
@@ -161,7 +164,7 @@ class AbstractBaseFileImporterBatch(ImportStatusModel, TrackedModel):
         self.status = self.derive_status()
 
     def save(
-        self, *args, derive_cached_values=True, propagate_derived_values=False, **kwargs
+        self, *args, derive_cached_values=True, propagate_derived_values=True, **kwargs
     ):
         if derive_cached_values:
             self.derive_cached_values()
@@ -249,7 +252,7 @@ class AbstractBaseFileImporter(ImportStatusModel, TrackedModel):
         self.status = self.derive_status()
 
     def save(
-        self, *args, derive_cached_values=True, propagate_derived_values=False, **kwargs
+        self, *args, derive_cached_values=True, propagate_derived_values=True, **kwargs
     ):
         if derive_cached_values:
             self.derive_cached_values()
@@ -271,6 +274,7 @@ class AbstractBaseFileImporter(ImportStatusModel, TrackedModel):
         # For every ContentType imported by this FI...
         for fia in self.file_import_attempts.all():
             # ...and delete them:
+            print(f"DElete {fia}")
             num_fia_deletions, fia_deletions = fia.delete_imported_models()
             total_num_fia_deletions += 1
             total_num_mia_deletions += num_fia_deletions
@@ -359,14 +363,15 @@ class AbstractBaseFileImportAttempt(ImportStatusModel, TrackedModel):
         for ct in ContentType.objects.filter(
             id__in=self.model_importers.values("model_import_attempts__content_type")
         ).distinct():
+
             try:
                 # ...get a queryset of all model instances that were imported...
                 to_delete = ct.model_class().objects.filter(
-                    model_importer__file_import_attempt=self
+                    model_import_attempt__model_importer__file_import_attempt=self
                 )
             except FieldError:
                 # TODO: Warning?
-                pass
+                raise
             else:
                 # ...and delete them:
                 num_deletions_for_model_class, deletions_for_model_class = (
@@ -408,6 +413,10 @@ class AbstractBaseModelImporter(ImportStatusModel, TrackedModel):
     def latest_model_import_attempt(self):
         return self.model_import_attempts.order_by("created_on").last()
 
+    @property
+    def importee_class(self):
+        return self.latest_model_import_attempt.importee_class
+
     def derive_status(self):
         """MI status is the status of its most recent MIA"""
         if self.model_import_attempts.exists():
@@ -424,7 +433,7 @@ class AbstractBaseModelImporter(ImportStatusModel, TrackedModel):
         self.status = self.derive_status()
 
     def save(
-        self, *args, derive_cached_values=True, propagate_derived_values=False, **kwargs
+        self, *args, derive_cached_values=True, propagate_derived_values=True, **kwargs
     ):
         if derive_cached_values:
             self.derive_cached_values()
@@ -514,7 +523,9 @@ class AbstractBaseModelImportAttempt(TrackedModel, ImportStatusModel):
 
         return f"{self.content_type}: {self.STATUSES[self.status].value}"
 
-    def save(self, *args, propagate_derived_values=True, **kwargs):
+    def save(
+        self, *args, propagate_derived_values=True, derive_cached_values=False, **kwargs
+    ):
         if self.status == ImportStatusModel.STATUSES.pending.db_value:
             if self.errors:
                 self.status = ImportStatusModel.STATUSES.rejected.db_value
@@ -681,15 +692,6 @@ class ModelImportAttempt(AbstractBaseModelImportAttempt):
 
 
 ### MODEL MIXINS ###
-
-
-# class AuditedModelManager(models.Manager):
-#     def create_with_audit(self, model_kwargs, audit_kwargs):
-#         model = self.model(**model_kwargs)
-#         audit = ModelImportAttempt.objects.create_for_model(**audit_kwargs)
-#         model.model_import_attempt = audit
-#         model.save()
-#         return model, audit
 
 
 class AbstractBaseAuditedModel(models.Model):

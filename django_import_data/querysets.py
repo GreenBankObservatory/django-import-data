@@ -18,25 +18,44 @@ class DerivedValuesQueryset(QuerySet):
     @transaction.atomic
     def derive_values(self, propagate_derived_values=True):
         for instance in tqdm(self, unit=self.model._meta.verbose_name):
-            instance.save(propagate_derived_values=False)
+            # Derive any necessary values for the model, but don't propagate them!
+            instance.save(derive_cached_values=True, propagate_derived_values=False)
 
+        # Now we propagate them, all at once, at the end
         if propagate_derived_values and hasattr(self, "propagate_derived_values"):
+            tqdm.write(f"Propagating saved values from {self.__class__}")
             self.propagate_derived_values()
+
+    @transaction.atomic
+    def update(self, *args, propagate_derived_values=True, **kwargs):
+        result = super().update(*args, **kwargs)
+        propagated_fields_being_updated = [
+            field for field in self.model.PROPAGATED_FIELDS if field in kwargs.keys()
+        ]
+        if propagate_derived_values and propagated_fields_being_updated:
+            tqdm.write(
+                "Now propagating derived values because the following "
+                f"propagated fields are being updated: {propagated_fields_being_updated}. "
+                "To disable this behavior, use propagate_derived_values=False"
+            )
+            self.propagate_derived_values()
+
+        return result
 
 
 class FileImporterBatchQuerySet(DerivedValuesQueryset):
-    @transaction.atomic
-    def propagate_derived_values(self):
-        FileImporterBatch = apps.get_model("django_import_data.FileImporterBatch")
-        FileImporterBatch.objects.filter(
-            file_importer__in=self.values("id")
-        ).distinct().derive_values()
-
     def annotate_num_file_importers(self):
         return self.annotate(num_file_importers=Count("file_importers", distinct=True))
 
 
 class FileImporterQuerySet(DerivedValuesQueryset):
+    @transaction.atomic
+    def propagate_derived_values(self):
+        FileImporterBatch = apps.get_model("django_import_data.FileImporterBatch")
+        FileImporterBatch.objects.filter(
+            file_importers__in=self.values("id")
+        ).distinct().derive_values()
+
     def refresh_from_filesystem(self):
         """Recompute the hash_on_disk fields of all QuerySet members
 
@@ -108,6 +127,13 @@ class FileImporterQuerySet(DerivedValuesQueryset):
 
 
 class ModelImporterQuerySet(DerivedValuesQueryset):
+    @transaction.atomic
+    def propagate_derived_values(self):
+        FileImportAttempt = apps.get_model("django_import_data.FileImportAttempt")
+        FileImportAttempt.objects.filter(
+            model_importers__in=self.values("id")
+        ).distinct().derive_values()
+
     def annotate_num_model_import_attempts(self):
         return self.annotate(
             num_model_import_attempts=Count("model_import_attempts", distinct=True)
@@ -122,22 +148,6 @@ class FileImportAttemptQuerySet(DerivedValuesQueryset):
             file_import_attempts__in=self.values("id")
         ).distinct().derive_values()
 
-    @transaction.atomic
-    def update(self, *args, propagate_derived_values=True, **kwargs):
-        result = super().update(*args, **kwargs)
-        propagated_fields_being_updated = [
-            field for field in self.model.PROPAGATED_FIELDS if field in kwargs.keys()
-        ]
-        if propagate_derived_values and propagated_fields_being_updated:
-            tqdm.write(
-                "Now propagating derived values because the following "
-                f"propagated fields are being updated: {propagated_fields_being_updated}. "
-                "To disable this behavior, use propagate_derived_values=False"
-            )
-            self.propagate_derived_values()
-
-        return result
-
     def annotate_num_model_importers(self):
         return self.annotate(
             num_model_importers=Count("model_importers", distinct=True)
@@ -147,31 +157,8 @@ class FileImportAttemptQuerySet(DerivedValuesQueryset):
 class ModelImportAttemptQuerySet(DerivedValuesQueryset):
     @transaction.atomic
     def propagate_derived_values(self):
-        FileImportAttempt = apps.get_model("django_import_data.FileImportAttempt")
         ModelImporter = apps.get_model("django_import_data.ModelImporter")
-
-        FileImportAttempt.objects.filter(
-            model_importers__in=self.values("id")
-        ).distinct().derive_values()
 
         ModelImporter.objects.filter(
             id__in=self.values("id")
         ).distinct().derive_values()
-
-    @transaction.atomic
-    def update(self, *args, propagate_derived_values=True, **kwargs):
-        FileImportAttempt = apps.get_model("django_import_data.FileImportAttempt")
-
-        result = super().update(*args, **kwargs)
-        propagated_fields_being_updated = [
-            field for field in self.model.PROPAGATED_FIELDS if field in kwargs.keys()
-        ]
-        if propagate_derived_values and propagated_fields_being_updated:
-            tqdm.write(
-                "Now propagating derived values because the following "
-                f"propagated fields are being updated: {propagated_fields_being_updated}. "
-                "To disable this behavior, use propagate_derived_values=False"
-            )
-            self.propagate_derived_values()
-
-        return result

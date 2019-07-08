@@ -102,10 +102,10 @@
                 title="The model importer that attempted to created a {{ object|model_name|default:'Model' }}"
                 {% endif %}
             >
-                {{ model_importer.importee_class|model_name }} Importer
+                {{ importee_class|model_name }} Importer
             </a>
         {% else %}
-            {{ model_importer.importee_class|model_name|default:"Model" }} Importer
+            {{ importee_class|model_name|default:"Model" }} Importer
         </li>
         {% endif %}
 
@@ -126,10 +126,10 @@
                 title="The model import attempt that attempted to created a {{ object|model_name|default:'Model' }}"
                 {% endif %}
             >
-                {{ model_import_attempt.importee_class|model_name }} Import Attempt
+                {{ importee_class|model_name }} Import Attempt
             </a>
         {% else %}
-            {{ model_import_attempt.importee_class|model_name|default:"Model" }} Import Attempt
+            {{ importee_class|model_name|default:"Model" }} Import Attempt
         </li>
         {% endif %}
 
@@ -148,7 +148,7 @@
                 {{ importee|model_name|default:'Model' }}
             </a>
         {% else %}
-            {{ importee|model_name|default:'Model' }}
+            {{ importee_class|model_name|default:"Model" }}
         {% endif %}
         </li>
       </ol>

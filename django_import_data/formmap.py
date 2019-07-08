@@ -201,7 +201,7 @@ class FormMap:
             if "original_pk" in form.data:
                 instance.pk = form.data["original_pk"]
             instance.model_import_attempt = model_import_attempt
-            instance.save()
+            instance.save(propagate_cached_values=False, derive_cached_values=False)
             instance.refresh_from_db()
             if "original_pk" in form.data:
                 assert instance.id == form.data["original_pk"], "Aw man"

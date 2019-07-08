@@ -107,6 +107,8 @@ def make_breadcrumb(item):
             "file_importer": item.file_import_attempt.file_importer,
             "file_import_attempt": item.file_import_attempt,
             "model_importer": item,
+            "importee_class": item.latest_model_import_attempt.importee_class,
+            "row_data": item.latest_model_import_attempt.row_data,
         }
         current = "model_importer"
     elif isinstance(item, ModelImportAttempt):
@@ -115,23 +117,23 @@ def make_breadcrumb(item):
             "file_importer": item.file_import_attempt.file_importer,
             "file_import_attempt": item.file_import_attempt,
             "model_import_attempt": item,
+            "model_importer": item.model_importer,
             "row_data": item.row_data,
+            "importee_class": item.importee_class,
         }
         if item.importee:
             context["importee"] = item.importee
         current = "model_import_attempt"
     elif getattr(item, "model_import_attempt", None):
         context = {
-            "file_importer_batch": item.model_import_attempt.file_import_attempt.file_importer.file_importer_batch
-            if item.model_import_attempt.file_import_attempt
-            else None,
-            "file_importer": item.model_import_attempt.file_import_attempt.file_importer
-            if item.model_import_attempt.file_import_attempt
-            else None,
-            "file_import_attempt": item.model_import_attempt.file_import_attempt,
+            "file_importer_batch": item.model_import_attempt.model_importer.file_import_attempt.file_importer.file_importer_batch,
+            "file_importer": item.model_import_attempt.model_importer.file_import_attempt.file_importer,
+            "file_import_attempt": item.model_import_attempt.model_importer.file_import_attempt,
             "row_data": item.model_import_attempt.row_data,
+            "model_importer": item.model_import_attempt.model_importer,
             "model_import_attempt": item.model_import_attempt,
             "importee": item,
+            "importee_class": item.__class__,
         }
         current = "importee"
     else:

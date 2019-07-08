@@ -38,7 +38,8 @@ class CreateFromImportAttemptView(CreateView):
                 row_data=self.model_import_attempt.row_data,
                 importee_field_data=form.cleaned_data,
                 errors={},
-                file_import_attempt=self.model_import_attempt.file_import_attempt,
+                model_importer=self.model_import_attempt.model_importer,
+                # TODO: Constant
                 imported_by="Web UI",
                 model=self.object,
                 status=self.model_import_attempt.STATUSES.created_clean.db_value,
@@ -51,6 +52,10 @@ class CreateFromImportAttemptView(CreateView):
             )
             messages.success(self.request, f"Created Model: {self.object}")
 
+        self.object.model_import_attempt = model_import_attempt
+        self.object.save()
+        model_import_attempt.refresh_from_db()
+        assert model_import_attempt.importee == self.object
         # From FormMixin
         return HttpResponseRedirect(self.get_success_url())
 
