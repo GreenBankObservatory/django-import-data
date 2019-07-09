@@ -153,6 +153,9 @@ class AbstractBaseFileImporterBatch(ImportStatusModel, TrackedModel):
             total_num_mia_deletions += num_mia_deletions
             all_mia_deletions += all_mia_deletions
 
+        self.status = ImportStatusModel.STATUSES.deleted
+        self.save()
+
         return (total_num_fia_deletions, total_num_mia_deletions, all_mia_deletions)
 
     @transaction.atomic
@@ -297,6 +300,9 @@ class AbstractBaseFileImporter(ImportStatusModel, TrackedModel):
             total_num_mia_deletions += num_fia_deletions
             all_mia_deletions += fia_deletions
 
+        self.status = ImportStatusModel.STATUSES.deleted.db_value
+        self.save(derive_cached_values=False)
+
         return (total_num_fia_deletions, total_num_mia_deletions, all_mia_deletions)
 
 
@@ -409,6 +415,9 @@ class AbstractBaseFileImportAttempt(ImportStatusModel, TrackedModel):
         # )
         # mia.status = ImportStatusModel.STATUSES.deleted.db_value
         # mia.save()
+
+        self.status = ImportStatusModel.STATUSES.deleted.db_value
+        self.save()
         return (num_deletions, deletions)
 
     def get_form_maps_used_during_import(self):
@@ -479,6 +488,8 @@ class AbstractBaseModelImporter(ImportStatusModel, TrackedModel):
             num_mia_deletions, mia_deletions = mia.delete_imported_models()
             total_num_mia_deletions += num_mia_deletions
 
+        self.status = ImportStatusModel.STATUSES.deleted.db_value
+        self.save()
         return total_num_mia_deletions
 
 
