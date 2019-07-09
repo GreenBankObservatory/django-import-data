@@ -129,9 +129,9 @@ def make_breadcrumb(item):
         current = "model_import_attempt"
     elif getattr(item, "model_import_attempt", None):
         context = {
-            "file_importer_batch": item.model_import_attempt.model_importer.file_import_attempt.file_importer.file_importer_batch,
-            "file_importer": item.model_import_attempt.model_importer.file_import_attempt.file_importer,
-            "file_import_attempt": item.model_import_attempt.model_importer.file_import_attempt,
+            "file_importer_batch": item.model_import_attempt.model_importer.row_data.file_import_attempt.file_importer.file_importer_batch,
+            "file_importer": item.model_import_attempt.model_importer.row_data.file_import_attempt.file_importer,
+            "file_import_attempt": item.model_import_attempt.model_importer.row_data.file_import_attempt,
             "row_data": item.model_import_attempt.row_data,
             "model_importer": item.model_import_attempt.model_importer,
             "model_import_attempt": item.model_import_attempt,
