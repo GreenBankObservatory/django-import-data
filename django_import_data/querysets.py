@@ -47,6 +47,13 @@ class FileImporterBatchQuerySet(DerivedValuesQueryset):
     def annotate_num_file_importers(self):
         return self.annotate(num_file_importers=Count("file_importers", distinct=True))
 
+    def annotate_num_successful_file_importers(self):
+        FileImporterBatch = apps.get_model("django_import_data.FileImporterBatch")
+        return self.annotate(num_successful_file_importers=Count("file_importers", distinct=True, filter=Q(status=FileImporterBatch.STATUSES.created_clean.db_value)))
+
+    def annotate_num_failed_file_importers(self):
+        FileImporterBatch = apps.get_model("django_import_data.FileImporterBatch")
+        return self.annotate(num_failed_file_importers=Count("file_importers", distinct=True, filter=Q(status__in=[status.db_value for status in FileImporterBatch.STATUSES if status != FileImporterBatch.STATUSES.created_clean])))
 
 class FileImporterQuerySet(DerivedValuesQueryset):
     @transaction.atomic
