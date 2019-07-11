@@ -1,13 +1,11 @@
 """Django Import Data Models"""
 
-from collections import Counter
+from collections import Counter, defaultdict
 from importlib import import_module
-import os
 from pprint import pformat
+import json
+import os
 
-from tqdm import tqdm
-
-from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.postgres.fields import ArrayField, JSONField
 from django.core.exceptions import FieldError
@@ -20,6 +18,7 @@ from django.utils.functional import cached_property
 
 from .mixins import ImportStatusModel, TrackedModel
 from .utils import DjangoErrorJSONEncoder
+from .utils import get_str_from_nums
 from .managers import (
     ModelImportAttemptManager,
     ModelImporterManager,
@@ -87,6 +86,59 @@ class RowData(ImportStatusModel, models.Model):
             self.file_import_attempt.save(
                 propagate_derived_values=propagate_derived_values
             )
+
+    def errors_by_alias(self):
+        _errors_by_alias = defaultdict(list)
+        all_errors = ModelImportAttempt.objects.filter(
+            model_importer__row_data=self
+        ).values_list("errors", flat=True)
+        for error in all_errors:
+            if "form_errors" in error:
+                for form_error in error["form_errors"]:
+                    _errors_by_alias[form_error.pop("alias")[0]].append(
+                        {**form_error, "error_type": "form"}
+                    )
+            if "conversion_errors" in error:
+                for conversion_error in error["conversion_errors"]:
+                    for alias in [
+                        alias
+                        for aliases in conversion_error["aliases"].values()
+                        for alias in aliases
+                    ]:
+                        conversion_error.pop("aliases")
+                        _errors_by_alias[alias].append(
+                            {**conversion_error, "error_type": "conversion"}
+                        )
+
+        return _errors_by_alias
+
+    # def errors_by_alias(self):
+    #     _errors_by_alias = defaultdict(list)
+    #     all_errors = ModelImportAttempt.objects.filter(
+    #         model_importer__row_data=self
+    #     ).values_list("errors", flat=True)
+    #     for error in all_errors:
+    #         if "form_errors" in error:
+    #             for form_error in error["form_errors"]:
+    #                 _errors_by_alias[form_error.pop("alias")[0]].append(
+    #                     {"error": form_error["errors"], "error_type": "form"}
+    #                 )
+    #         if "conversion_errors" in error:
+    #             for conversion_error in error["conversion_errors"]:
+    #                 for alias in [
+    #                     alias
+    #                     for aliases in conversion_error["aliases"].values()
+    #                     for alias in aliases
+    #                 ]:
+    #                     conversion_error.pop("aliases")
+    #                     _errors_by_alias[alias].append(
+    #                         {
+    #                             "error": conversion_error["error"],
+    #                             "error_type": "conversion",
+    #                         }
+    #                     )
+
+    #     return _errors_by_alias
 
 
 class AbstractBaseFileImporterBatch(ImportStatusModel, TrackedModel):
@@ -305,6 +357,18 @@ class AbstractBaseFileImporter(ImportStatusModel, TrackedModel):
 
         return (total_num_fia_deletions, total_num_mia_deletions, all_mia_deletions)
 
+    def condensed_errors_by_row_as_dicts(self):
+        return self.latest_file_import_attempt.condensed_errors_by_row_as_dicts()
+
+    def errors_by_row_as_dict(self):
+        return self.latest_file_import_attempt.errors_by_row_as_dict()
+
+    def condensed_errors_by_row(self):
+        return json.dumps(self.condensed_errors_by_row_as_dicts(), indent=4)
+
+    def errors_by_row(self):
+        return json.dumps(self.errors_by_row_as_dict(), indent=4)
+
 
 class AbstractBaseFileImportAttempt(ImportStatusModel, TrackedModel):
     """Represents an individual attempt at an import of a "batch" of Importers"""
@@ -427,6 +491,87 @@ class AbstractBaseFileImportAttempt(ImportStatusModel, TrackedModel):
         form_maps = self.get_field_maps_used_during_import()
         return {form_map.get_name(): form_map.field_maps for form_map in form_maps}
 
+    # def errors_by_alias(self):
+    #     _errors_by_alias = defaultdict(list)
+    #     all_errors = ModelImportAttempt.objects.filter(
+    #         model_importer__row_data=self
+    #     ).values_list("errors", flat=True)
+    #     for error in all_errors:
+    #         if "form_errors" in error:
+    #             for form_error in error["form_errors"]:
+    #                 _errors_by_alias[form_error.pop("alias")[0]].append(
+    #                     {"error": form_error["errors"], "error_type": "form"}
+    #                 )
+    #         if "conversion_errors" in error:
+    #             for conversion_error in error["conversion_errors"]:
+    #                 for alias in [
+    #                     alias
+    #                     for aliases in conversion_error["aliases"].values()
+    #                     for alias in aliases
+    #                 ]:
+    #                     conversion_error.pop("aliases")
+    #                     _errors_by_alias[alias].append(
+    #                         {
+    #                             "error": conversion_error["error"],
+    #                             "error_type": "conversion",
+    #                         }
+    #                     )
+
+    #     return _errors_by_alias
+    def condensed_errors_by_row_as_dicts(self):
+        error_report = self.errors_by_row_as_dict()
+        print(error_report)
+        error_to_row_nums = defaultdict(list)
+
+        condensed_errors = []
+        for row_num, error in error_report.items():
+            if "form_errors" in error:
+                for form_error in error["form_errors"]:
+                    condensed_errors.append(
+                        {
+                            "aliases": form_error["alias"],
+                            "error": f"{form_error['errors']}; got value '{form_error['value']}'",
+                            "error_type": "form",
+                            "row_num": row_num,
+                            # "value": form_error["value"],
+                        }
+                    )
+            if "conversion_errors" in error:
+                for conversion_error in error["conversion_errors"]:
+                    condensed_errors.append(
+                        {
+                            "aliases": tuple(
+                                alias
+                                for aliases in conversion_error["aliases"].values()
+                                for alias in aliases
+                            ),
+                            "error": conversion_error["error"],
+                            "error_type": "conversion",
+                            "row_num": row_num,
+                            # "value": conversion_error["value"],
+                        }
+                    )
+
+        for condensed_error in condensed_errors:
+            row_num = condensed_error.pop("row_num")
+            error_to_row_nums[json.dumps(condensed_error)].append(row_num)
+
+        condensed = [
+            {"row_nums": get_str_from_nums(row_nums), **json.loads(error)}
+            for error, row_nums in error_to_row_nums.items()
+        ]
+        return condensed
+
+    def errors_by_row_as_dict(self):
+        all_errors = ModelImportAttempt.objects.filter(
+            model_importer__row_data__file_import_attempt=self
+        ).values_list("model_importer__row_data__row_num", "errors")
+        error_report = {row_num: errors for row_num, errors in all_errors if errors}
+        return error_report
+
+    def errors_by_row(self):
+        return json.dumps(self.errors_by_row_as_dict(), indent=4)
+
 
 class AbstractBaseModelImporter(ImportStatusModel, TrackedModel):
     """Representation of all attempts to import a specific file"""
@@ -473,9 +618,7 @@ class AbstractBaseModelImporter(ImportStatusModel, TrackedModel):
         super().save(*args, **kwargs)
 
         if propagate_derived_values:
-            self.file_import_attempt.save(
-                propagate_derived_values=propagate_derived_values
-            )
+            self.row_data.save(propagate_derived_values=propagate_derived_values)
 
     @transaction.atomic
     def delete_imported_models(self):
@@ -564,10 +707,7 @@ class AbstractBaseModelImportAttempt(TrackedModel, ImportStatusModel):
                 self.status = ImportStatusModel.STATUSES.created_clean.db_value
 
         super().save(*args, **kwargs)
-        if propagate_derived_values and self.file_import_attempt:
-            self.file_import_attempt.save(
-                propagate_derived_values=propagate_derived_values
-            )
+        if propagate_derived_values:
             self.model_importer.save(propagate_derived_values=propagate_derived_values)
 
     def summary(self):
@@ -726,30 +866,17 @@ class ModelImportAttempt(AbstractBaseModelImportAttempt):
         )
 
 
+# class ModelImportAttemptError(models.Model):
+#     model_import_attempt = models.OneToOneField(on_delete=models.CASCADE, unique=True)
+#     from_fields = models.CharField(max_length=256)
+#     from_field_
 ### MODEL MIXINS ###
 
 
 class AbstractBaseAuditedModel(models.Model):
-    # NO GFK
     model_import_attempt = models.OneToOneField(
         ModelImportAttempt, on_delete=models.CASCADE, unique=True, null=True, blank=True
     )
-    # IF GFK
-    # model_import_attempts = GenericRelation(
-    #     ModelImportAttempt, related_query_name="%(class)s_imported_models"
-    # )
-
-    # objects = AuditedModelManager()
-
-    # IF GFK
-    # @property
-    # def model_import_attempt(self):
-    #     return self.model_import_attempts.first()
-
-    # IF GFK
-    # @model_import_attempt.setter
-    # def model_import_attempt(self, instance):
-    #     return self.model_import_attempts.set([instance])
 
     class Meta:
         abstract = True

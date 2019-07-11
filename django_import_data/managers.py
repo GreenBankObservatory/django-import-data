@@ -1,3 +1,4 @@
+import json
 import os
 
 from django.apps import apps
@@ -33,6 +34,28 @@ class DerivedValuesManager(models.Manager):
             propagate_derived_values=propagate_derived_values,
         )
         return instance
+
+    def get_successful(self):
+        return self.filter(
+            status__in=[
+                self.model.STATUSES.created_clean.db_value,
+                self.model.STATUSES.created_dirty.db_value,
+            ]
+        )
+
+    def get_rejected(self):
+        return self.filter(
+            status__in=[
+                self.model.STATUSES.rejected.db_value,
+                self.model.STATUSES.empty.db_value,
+            ]
+        )
+
+    def get_num_successful(self):
+        return self.get_successful().count()
+
+    def get_num_rejected(self):
+        return self.get_rejected().count()
 
 
 class RowDataManager(DerivedValuesManager):
@@ -85,6 +108,22 @@ class ModelImportAttemptManager(DerivedValuesManager):
 
     def get_queryset(self):
         return ModelImportAttemptQuerySet(self.model, using=self._db)
+
+    def with_importee(self):
+        queryset = self.none()
+        for model_name in self.values_list("content_type__model", flat=True):
+            queryset |= self.filter(**{f"{model_name}__isnull": False})
+        return queryset
+
+    def without_importee(self):
+        queryset = self.exclude(id__in=self.with_importee().values("id"))
+        return queryset
+
+    def get_num_with_importee(self):
+        return self.with_importee().count()
+
+    def get_num_without_importee(self):
+        return self.without_importee().count()
 
 
 class FileImporterBatchManager(DerivedValuesManager):

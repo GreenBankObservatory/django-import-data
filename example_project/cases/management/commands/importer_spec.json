@@ -1,0 +1,5 @@
+{
+    "import_example_data": {
+        "paths": ["/home/sandboxes/tchamber/repos/django-import-data/example_project/importers/example_data_source/test_data.csv"],
+    },
+}

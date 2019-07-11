@@ -237,7 +237,7 @@ class FieldMap:
                     f"More than one alias found in the data: {duplicated_aliases}. "
                     "This indicates that you probably need to split this FieldMap in two..."
                 )
-        return unaliased_data
+        return unaliased_data, found_aliases
 
     # TODO: This has no place here... this should _perhaps_ perform
     # core functionality, but most rendering should now be distributed
@@ -251,7 +251,7 @@ class FieldMap:
     ):
         if converter is None:
             converter = self.converter
-        ret = self.unalias(
+        ret, __ = self.unalias(
             data,
             allow_unknown=allow_unknown,
             allow_multiple_aliases_for_field=allow_multiple_aliases_for_field,
@@ -273,7 +273,7 @@ class FieldMap:
                     if "argument" in str(error):
                         argspec = getfullargspec(converter)
                         raise TypeError(
-                            f"Converter {converter.__name__} (args: {argspec.args}) rejected args: {list(ret)}"
+                            f"Converter {converter.__name__} (args: {argspec.args}) rejected given args: {list(ret)}"
                         ) from error
                 if not isinstance(converted, dict):
                     return {to_field: converted}
@@ -288,7 +288,7 @@ class FieldMap:
         except TypeError as error:
             argspec = getfullargspec(converter)
             raise TypeError(
-                f"Converter {converter.__name__} ({argspec.args}) rejected args: {list(ret)}"
+                f"Converter {converter.__name__} ({argspec.args}) rejected given args: {list(ret)}"
             ) from error
 
     def _explain_from_fields(self, form_fields, field_names):
@@ -420,7 +420,7 @@ class OneToOneFieldMap(FieldMap):
     ):
         if converter is None:
             converter = self.converter
-        ret = self.unalias(
+        ret, __ = self.unalias(
             data,
             allow_unknown=allow_unknown,
             allow_multiple_aliases_for_field=allow_multiple_aliases_for_field,
@@ -468,7 +468,7 @@ class ManyToOneFieldMap(FieldMap):
     ):
         if converter is None:
             converter = self.converter
-        ret = self.unalias(
+        ret, __ = self.unalias(
             data,
             allow_unknown=allow_unknown,
             allow_multiple_aliases_for_field=allow_multiple_aliases_for_field,
@@ -483,7 +483,7 @@ class ManyToOneFieldMap(FieldMap):
             if "argument" in str(error):
                 argspec = getfullargspec(converter)
                 raise TypeError(
-                    f"Converter {converter.__name__} ({argspec.args}) rejected args: {list(ret)}"
+                    f"Converter {converter.__name__} ({argspec.args}) rejected given args: {list(ret)}"
                 ) from error
 
         if not isinstance(converted, dict):

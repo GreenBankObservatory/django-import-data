@@ -5,14 +5,11 @@ from django_import_data import (
     OneToOneFieldMap,
     ManyToManyFieldMap,
 )
-from .forms import CaseForm, PersonForm, StructureForm
+from cases.forms import CaseForm, PersonForm, StructureForm
 
 
 def coerce_positive_int(value):
-    try:
-        num = int(value)
-    except ValueError:
-        return value
+    num = int(value)
     if num < 1:
         return None
 
@@ -50,7 +47,7 @@ class PersonFormMap(FormMap):
             to_fields=("street", "city", "state", "zip"),
         ),
         # 1:1
-        OneToOneFieldMap(from_field="email", to_field="email"),
+        OneToOneFieldMap(from_field={"email": "E-mail"}, to_field="email"),
         OneToOneFieldMap({"phone": ("phone", "phone_number")}),
     ]
 
@@ -62,7 +59,8 @@ class CaseFormMap(FormMap):
         return {"status": status, "type": type_, "subtype": subtype}
 
     def convert_case_num(self, case_num):
-        return coerce_positive_int(case_num.strip("CASE#"))
+        ret = coerce_positive_int(case_num.strip("CASE#"))
+        return ret
 
     form_class = CaseForm
     field_maps = [
@@ -89,3 +87,8 @@ class StructureFormMap(FormMap):
 
     def convert_location(self, latitude, longitude):
         return {"location": f"({latitude}, {longitude})"}
+
+
+CASE_FORM_MAP = CaseFormMap()
+PERSON_FORM_MAP = PersonFormMap()
+STRUCTURE_FORM_MAP = StructureFormMap()

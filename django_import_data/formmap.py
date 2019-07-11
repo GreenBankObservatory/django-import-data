@@ -1,3 +1,5 @@
+import logging
+
 from collections import defaultdict
 from pprint import pformat
 
@@ -7,6 +9,7 @@ from django.forms import ModelForm, ValidationError
 
 from .mermaid import render_form_map_as_mermaid
 
+LOGGER = logging.getLogger(__name__)
 DEFAULT_THRESHOLD = 0.7
 
 
@@ -108,6 +111,7 @@ class FormMap:
                     {
                         "error": repr(error),
                         "from_fields": field_map.from_fields,
+                        "aliases": field_map.unalias(data)[1],
                         "to_fields": field_map.to_fields,
                         "converter": field_map.converter.__name__,
                     }
@@ -149,6 +153,32 @@ class FormMap:
 
         return (rendered_form, conversion_errors)
 
+    def get_useful_form_errors(self, form, data):
+        useful_form_errors = []
+        for field, errors in form.errors.as_data().items():
+            alias = None
+            # TODO: Cache this up front somehow
+            for field_map in self.field_maps:
+                if field in field_map.to_fields:
+                    try:
+                        # TODO: This is disgusting
+                        alias = next(iter(field_map.unalias(data)[1].values()))
+                    except:
+                        LOGGER.error(
+                            "Failed to process alias for:", field_map.unalias(data)
+                        )
+
+            useful_form_errors.append(
+                {
+                    "field": field,
+                    "value": form[field].value(),
+                    "errors": [repr(error) for error in errors],
+                    "alias": alias if alias else field,
+                }
+            )
+
+        return useful_form_errors
+
     def save_with_audit(
         self, row_data, data=None, form=None, imported_by=None, **kwargs
     ):
@@ -160,7 +190,7 @@ class FormMap:
             raise ValueError("imported_by is required!")
 
         if not isinstance(row_data, RowData):
-            raise ValueError("aw snap")
+            raise ValueError(f"row_data must be a {RowData} instance!")
 
         # If no data has been explicitly given, use the whole row's data
         if data is None:
@@ -175,12 +205,17 @@ class FormMap:
         if form is None:
             return (None, None)
 
-        useful_form_errors = get_useful_form_errors(form)
+        LOGGER.debug(f"Form data: {form.data}")
+
+        useful_form_errors = self.get_useful_form_errors(form, data)
+
         all_errors = {}
         if conversion_errors:
             all_errors["conversion_errors"] = conversion_errors
         if useful_form_errors:
             all_errors["form_errors"] = useful_form_errors
+
+        # if conversion_errors and useful_form_errors:
         if not (conversion_errors or useful_form_errors):
             __, model_import_attempt = ModelImporter.objects.create_with_attempt(
                 errors=all_errors,
@@ -224,7 +259,7 @@ class FormMap:
             instance = form.save()
             return instance
 
-        useful_form_errors = get_useful_form_errors(form)
+        useful_form_errors = self.get_useful_form_errors(form, data)
         all_errors = {
             "conversion_errors": conversion_errors,
             "form_errors": useful_form_errors,

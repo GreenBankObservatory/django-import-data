@@ -1,0 +1,3 @@
+"first_name","middle_name","last_name","E-mail","case_num","completed","type","address","letter1","latitude","longitude","phone"
+"Foo","Bar","Baz","not an email","potato","TRUE","A 1","123 Foobar St, Atlanta, GA, 30078
+","/home/foo/foo.txt",38.7,78.1,123456789

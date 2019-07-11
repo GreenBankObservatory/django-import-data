@@ -2,10 +2,11 @@
 
 from collections import defaultdict
 from datetime import datetime
+from enum import Enum
 from pprint import pformat
 import csv
-from enum import Enum
 import json
+import logging
 import os
 import random
 import re
@@ -19,6 +20,8 @@ from django.utils import timezone
 from tqdm import tqdm
 
 from django_import_data.utils import hash_file
+
+LOGGER = logging.getLogger(__name__)
 
 
 class BaseImportCommand(BaseCommand):
@@ -117,6 +120,24 @@ class BaseImportCommand(BaseCommand):
                 "So this should only be used after you are sure there are no duplicates!"
             ),
         )
+        parser.add_argument(
+            "--propagate",
+            action="store_true",
+            help=(
+                "This will cause derived values to be derived and propagated "
+                "as audit models are created. If not given, it is assumed that "
+                "these will be derived at the end."
+            ),
+        )
+        parser.add_argument(
+            "--no-post-import-actions",
+            action="store_true",
+            help=(
+                "If given, do not execute any of the defined post-import actions. "
+                "This might be used if you plan on performing post-import actions yourself"
+            ),
+        )
+
         if cls.PROGRESS_TYPE == cls.PROGRESS_TYPES.ROW:
             parser.add_argument(
                 "-r",
@@ -166,6 +187,7 @@ class BaseImportCommand(BaseCommand):
         with open(path, newline="", encoding="latin1") as file:
             lines = file.readlines()
 
+        LOGGER.debug(f"Read {len(lines)} lines from {path}")
         return csv.DictReader(lines)
 
     def handle_record(self, record, file_import_attempt):
@@ -300,6 +322,7 @@ class BaseImportCommand(BaseCommand):
         return info, errors
 
     def handle_file(self, path, file_importer_batch, **options):
+        LOGGER.debug(f"Handling path {path}")
         FileImporter = apps.get_model("django_import_data.FileImporter")
         FileImportAttempt = apps.get_model("django_import_data.FileImportAttempt")
         RowData = apps.get_model("django_import_data.RowData")
@@ -313,25 +336,27 @@ class BaseImportCommand(BaseCommand):
                 datetime.fromtimestamp(os.path.getmtime(path))
             )
             hash_on_disk = hash_file(path)
+            LOGGER.debug(f"Found {path}; hash: {hash_on_disk}")
         except FileNotFoundError:
             file_modified_on = None
             hash_on_disk = ""
+            LOGGER.debug(f"{path} not found; using null hash and modification time")
 
         hash_checked_on = timezone.now()
         existing_file_importers = FileImporter.objects.filter(file_path=path)
         num_file_importers_found = existing_file_importers.count()
         if num_file_importers_found == 1:
-            print("num_file_importers_found", num_file_importers_found)
             file_importer = existing_file_importers.first()
+            LOGGER.debug(f"Found single existing FileImporter: FI {file_importer.id}")
             file_importer_created = False
             file_importer.hash_on_disk = hash_on_disk
             file_importer.hash_checked_on = hash_checked_on
             file_importer.file_importer_batch = file_importer_batch
             file_importer.save(
-                propagate_derived_values=False, derive_cached_values=False
+                propagate_derived_values=options["propagate"],
+                derive_cached_values=options["propagate"],
             )
         elif num_file_importers_found == 0:
-            print("num_file_importers_found", num_file_importers_found)
             file_importer = FileImporter.objects.create_fast(
                 file_importer_batch=file_importer_batch,
                 file_path=path,
@@ -339,6 +364,9 @@ class BaseImportCommand(BaseCommand):
                 file_modified_on=file_modified_on,
                 hash_on_disk=hash_on_disk,
                 hash_checked_on=hash_checked_on,
+            )
+            LOGGER.debug(
+                f"Found no existing FileImporter; created FI {file_importer.id}"
             )
             file_importer_created = True
         else:
@@ -348,12 +376,19 @@ class BaseImportCommand(BaseCommand):
             )
 
         file_importer.file_importer_batch = file_importer_batch
-        file_importer.save(propagate_derived_values=False, derive_cached_values=False)
+        file_importer.save(
+            propagate_derived_values=options["propagate"],
+            derive_cached_values=options["propagate"],
+        )
 
         latest_file_import_attempt = file_importer.latest_file_import_attempt
         if latest_file_import_attempt:
+            LOGGER.debug(
+                f"Found previous FileImportAttempt: FIA {latest_file_import_attempt.id}"
+            )
             if options["overwrite"] or options["skip"]:
                 if options["skip"]:
+                    LOGGER.debug(f"Skipping processing of {path}")
                     if self.verbosity > 2:
                         tqdm.write(
                             f"SKIPPING previous FIA: {latest_file_import_attempt}"
@@ -361,12 +396,18 @@ class BaseImportCommand(BaseCommand):
                     # TODO: We shouldn't return here...
                     return None
                 else:
+                    LOGGER.debug(
+                        f"Overwriting previous FIA {latest_file_import_attempt.id}"
+                    )
                     if self.verbosity > 2:
                         tqdm.write(
                             f"DELETING previous FIA: {latest_file_import_attempt}"
                         )
                     num_deletions, deletions = (
                         latest_file_import_attempt.delete_imported_models()
+                    )
+                    LOGGER.debug(
+                        f"Deleted {num_deletions} models:\n{pformat(deletions)}"
                     )
                     if self.verbosity > 2:
                         tqdm.write(
@@ -378,18 +419,28 @@ class BaseImportCommand(BaseCommand):
                     "but cannot delete or skip it due to lack of overwrite=True or skip=True!"
                 )
 
+        file_level_errors = {}
         try:
             rows = list(self.load_rows(path))
         except (FileNotFoundError, ValueError) as error:
             if options["durable"]:
                 tqdm.write(f"ERROR: {error}")
+                if "misc" in file_level_errors:
+                    file_level_errors["misc"].append([error])
+                else:
+                    file_level_errors["misc"] = [error]
             else:
                 raise ValueError("Error loading rows!") from error
             rows = []
 
-        file_level_info, file_level_errors = self.file_level_checks(rows)
+        LOGGER.debug(f"Got {len(rows)} rows from {path}")
+        file_level_info, file_level_errors_ = self.file_level_checks(rows)
+        file_level_errors.update(file_level_errors)
         if not os.path.isfile(path):
-            file_level_errors["misc"] = ["file_missing"]
+            if "misc" in file_level_errors:
+                file_level_errors["misc"].append(["file_missing"])
+            else:
+                file_level_errors["misc"] = ["file_missing"]
         if file_level_errors and not options["durable"]:
             raise ValueError(f"One or more file-level errors: {file_level_errors}")
 
@@ -428,8 +479,12 @@ class BaseImportCommand(BaseCommand):
 
         all_errors = []
 
-        # TODO: Excel logic of adding a column with original row needs to be here, then removed there!
-        for ri, row in enumerate(rows):
+        # TODO: Excel logic of adding a column with original row needs to be here, then removed there?
+        # We start at 2 here:
+        # +1 to make it 1-indexed (more intuitive for end user)
+        # +1 to compensate for header being the first row
+        # TODO: This is NOT robust across all use cases! Should be defined in the importer_spec.json/CLI, worst case...
+        for ri, row in enumerate(rows, 2):
             row_data = RowData.objects.create(
                 row_num=ri, data=row, file_import_attempt=file_import_attempt
             )
@@ -439,7 +494,6 @@ class BaseImportCommand(BaseCommand):
                 for model_importer in row_data.model_importers.all()
                 if model_importer.latest_model_import_attempt.errors
             }
-            # TODO: Make status an int in the DB so we can do calcs easier
             if errors:
                 error_str = (
                     f"Row {ri} of file {os.path.basename(path)} handled, but had {len(errors)} errors:\n"
@@ -457,7 +511,8 @@ class BaseImportCommand(BaseCommand):
         file_import_attempt.errors.update(errors)
         file_import_attempt.ignored_headers = self.IGNORED_HEADERS
         file_import_attempt.save(
-            propagate_derived_values=False, derive_cached_values=False
+            propagate_derived_values=options["propagate"],
+            derive_cached_values=options["propagate"],
         )
         return file_import_attempt
 
@@ -551,22 +606,34 @@ class BaseImportCommand(BaseCommand):
         file_importer_batch = FileImporterBatch.objects.create(
             command=current_command, args=paths, kwargs=options
         )
-        print("CRETATED", file_importer_batch)
+        LOGGER.debug(
+            f"Created FIB {file_importer_batch.id}; will process {files_to_process} {self.verbosity}"
+        )
         for path in files_to_process:
             if self.verbosity == 3:
                 tqdm.write(f"Processing {path}")
             file_import_attempt = self.handle_file(path, file_importer_batch, **options)
-            print(
-                f"handle_files: file_import_attempt: {file_import_attempt.id}; {file_import_attempt.file_importer.file_importer_batch.id}"
-            )
+            # LOGGER.debug(
+            #     f"handle_files: file_import_attempt: {file_import_attempt.id}; {file_import_attempt.file_importer.file_importer_batch.id}"
+            # )
             assert file_import_attempt is not None
 
         return file_importer_batch
 
     def post_import_actions(self):
-        pass
+        LOGGER.debug("Performing post_import_actions")
+        FileImportAttempt = apps.get_model("django_import_data.FileImportAttempt")
+        ModelImporter = apps.get_model("django_import_data.ModelImporter")
+        # Derive appropriate statuses for all MIs. This will also
+        # propagate to all FIAs, FIs, and FIBs
+        LOGGER.debug("Deriving status values for Model Importers")
+        ModelImporter.objects.all().derive_values()
+        LOGGER.debug("Deriving status values for File Import Attempts")
+        # TODO: Make this more robust via Managers instead of Querysets...
+        # This is needed to check all FIAs without any MIs!
+        FileImportAttempt.objects.all().derive_values()
 
-    def post_import_checks(self, file_importer_batch):
+    def post_import_checks(self, file_importer_batch, **options):
         tqdm.write("All Batch-Level Errors")
         all_file_errors = [
             fi.latest_file_import_attempt.errors
@@ -592,7 +659,8 @@ class BaseImportCommand(BaseCommand):
             {key: list(value) for key, value in all_unique_errors.items()}
         )
         file_importer_batch.save(
-            propagate_derived_values=False, derive_cached_values=False
+            propagate_derived_values=options["propagate"],
+            derive_cached_values=options["propagate"],
         )
         tqdm.write(pformat(all_unique_errors))
         tqdm.write("=" * 80)
@@ -658,5 +726,10 @@ class BaseImportCommand(BaseCommand):
                     tqdm.write("DRY RUN; rolling back changes")
 
         file_importer_batch.errors["duplicate_paths"] = duplicate_paths
-        self.post_import_checks(file_importer_batch)
-        self.post_import_actions()
+        self.post_import_checks(file_importer_batch, **options)
+        if not options["no_post_import_actions"]:
+            self.post_import_actions()
+        else:
+            tqdm.write(
+                "Skipping post import actions due to presence of no_post_import_actions=True"
+            )

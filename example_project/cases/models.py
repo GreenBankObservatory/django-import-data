@@ -11,6 +11,10 @@ class Person(AbstractBaseAuditedModel):
     name = models.CharField(max_length=256, blank=True)
     phone = models.CharField(max_length=256, blank=True)
     email = models.EmailField(null=True, blank=True)
+    city = models.CharField(max_length=256, blank=True)
+    street = models.CharField(max_length=256, blank=True)
+    zip = models.CharField(max_length=256, blank=True)
+    state = models.CharField(max_length=256, blank=True)
 
     def __str__(self):
         return f"{self.name}; {self.phone}; {self.email}"
@@ -27,6 +31,11 @@ class Case(AbstractBaseAuditedModel):
     structure = models.ForeignKey(
         "Structure", on_delete=models.CASCADE, null=True, blank=True
     )
+    status = models.CharField(
+        choices=(("incomplete", "incomplete"), ("complete", "complete")), max_length=256
+    )
+    type = models.CharField(max_length=256, blank=True)
+    subtype = models.PositiveIntegerField(blank=True)
 
     def __str__(self):
         return f"#{self.case_num} ({self.applicant})"
