@@ -129,17 +129,24 @@ def acknowledge_file_importer(request, pk):
             messages.error(request, "Malformed request")
         else:
             if acknowledge == "Acknowledge":
-                file_import_attempt.acknowledged = True
+                success = file_import_attempt.acknowledge()
+                acknowledged_str = "acknowledged"
             else:
-                file_import_attempt.acknowledged = False
-            file_import_attempt.save()
+                success = file_import_attempt.unacknowledge()
+                acknowledged_str = "unacknowledged"
 
-        messages.success(
-            request,
-            f"File Import Attempt '{file_import_attempt}' has been "
-            f"{'acknowledged' if file_import_attempt.acknowledged else 'unacknowledged'}",
-        )
-    return HttpResponseRedirect(file_import_attempt.get_absolute_url())
+        if success:
+            messages.success(
+                request,
+                f"File Import Attempt '{file_import_attempt}' has been "
+                f"{acknowledged_str}",
+            )
+        else:
+            messages.warning(
+                request,
+                f"File Import Attempt '{file_import_attempt}' could not be acknowledged because it has already been deleted!",
+            )
+    return HttpResponseRedirect(file_importer.get_absolute_url())
 
 
 def changed_files_view(request):
@@ -211,7 +218,7 @@ def changed_files_view(request):
     changed_files = FileImporter.objects.all().changed_files()
     return render(
         request,
-        "fileimportattempt_check_hashes.html",
+        "changed_files_dashboard.html",
         {
             "files_changed_since_import": changed_files,
             "last_hash_check": FileImporter.objects.order_by("created_on")

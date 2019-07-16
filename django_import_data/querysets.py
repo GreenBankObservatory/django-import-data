@@ -1,17 +1,30 @@
 """Querysets for django_import_data"""
 
-from datetime import datetime
-import os
-
 from tqdm import tqdm
 
 from django.apps import apps
 from django.db import transaction
 from django.db.models import F, OuterRef, Subquery, Count, Q
 from django.db.models.query import QuerySet
-from django.utils.timezone import make_aware, now
 
-from .utils import hash_file
+
+class TrackedFileQueryset(QuerySet):
+    """Contains operations for synchronizing with files on disk"""
+
+    # Note: we don't need this to be atomic
+    def refresh_from_filesystem(self):
+        """Recompute the hash_on_disk fields of all QuerySet members
+
+        Returns a report of which members are missing, changed, or unchanged
+        from the previous import check"""
+        report = {"missing": [], "changed": [], "unchanged": []}
+        progress = tqdm(self.order_by("created_on"), unit="files")
+        for instance in progress:
+            progress.desc = instance.file_path
+            status = instance.refresh_from_filesystem()
+            report[status].append(instance)
+
+        return report
 
 
 class DerivedValuesQueryset(QuerySet):
@@ -82,37 +95,6 @@ class FileImporterQuerySet(DerivedValuesQueryset):
             file_importers__in=self.values("id")
         ).distinct().derive_values()
 
-    def refresh_from_filesystem(self):
-        """Recompute the hash_on_disk fields of all QuerySet members
-
-        Returns a report of which members are missing, changed, or unchanged
-        from the previous import check"""
-        report = {"missing": [], "changed": [], "unchanged": []}
-        progress = tqdm(self.order_by("created_on"), unit="files")
-        for file_importer in progress:
-            file_importer.hash_checked_on = now()
-            path = file_importer.file_path
-            progress.desc = path
-            try:
-                hash_on_disk = hash_file(path)
-            except FileNotFoundError:
-                file_importer.hash_on_disk = ""
-                file_importer.save()
-                report["missing"].append(file_importer)
-            else:
-                file_modified_on = make_aware(
-                    datetime.fromtimestamp(os.path.getmtime(path))
-                )
-                if file_importer.hash_on_disk != hash_on_disk:
-                    report["changed"].append(file_importer)
-                else:
-                    report["unchanged"].append(file_importer)
-                file_importer.hash_on_disk = hash_on_disk
-                file_importer.file_modified_on = file_modified_on
-                file_importer.save()
-
-        return report
-
     def changed_files(self):
         FileImportAttempt = apps.get_model("django_import_data.FileImportAttempt")
         FileImporter = apps.get_model("django_import_data.FileImporter")
@@ -128,14 +110,14 @@ class FileImporterQuerySet(DerivedValuesQueryset):
         changed = changed_hashes | changed_paths
         return changed
 
-    def annotate_acknowledged(self):
+    def annotate_current_status(self):
         FileImportAttempt = apps.get_model("django_import_data.FileImportAttempt")
-        acknowledged = (
+        current_status = (
             FileImportAttempt.objects.filter(file_importer=OuterRef("pk"))
             .order_by("-created_on")
-            .values("acknowledged")[:1]
+            .values("current_status")[:1]
         )
-        return self.annotate(acknowledged=Subquery(acknowledged))
+        return self.annotate(current_status=Subquery(current_status))
 
     def annotate_num_file_import_attempts(self):
         return self.annotate(
@@ -182,6 +164,9 @@ class RowDataQuerySet(DerivedValuesQueryset):
             num_model_importers=Count("model_importers", distinct=True)
         )
 
+    def annotate_current_status(self):
+        return self.annotate(current_status=F("file_import_attempt__current_status"))
+
 
 class ModelImporterQuerySet(DerivedValuesQueryset):
     @transaction.atomic
@@ -222,6 +207,11 @@ class ModelImporterQuerySet(DerivedValuesQueryset):
             )
         )
 
+    def annotate_current_status(self):
+        return self.annotate(
+            current_status=F("row_data__file_import_attempt__current_status")
+        )
+
 
 class FileImportAttemptQuerySet(DerivedValuesQueryset):
     @transaction.atomic
@@ -245,3 +235,10 @@ class ModelImportAttemptQuerySet(DerivedValuesQueryset):
         ModelImporter.objects.filter(
             id__in=self.values("id")
         ).distinct().derive_values()
+
+    def annotate_current_status(self):
+        return self.annotate(
+            current_status=F(
+                "model_importer__row_data__file_import_attempt__current_status"
+            )
+        )

@@ -620,18 +620,22 @@ class BaseImportCommand(BaseCommand):
 
         return file_importer_batch
 
-    def post_import_actions(self):
+    def post_import_actions(self, file_importer_batch):
         LOGGER.debug("Performing post_import_actions")
         FileImportAttempt = apps.get_model("django_import_data.FileImportAttempt")
         ModelImporter = apps.get_model("django_import_data.ModelImporter")
         # Derive appropriate statuses for all MIs. This will also
         # propagate to all FIAs, FIs, and FIBs
         LOGGER.debug("Deriving status values for Model Importers")
-        ModelImporter.objects.all().derive_values()
+        ModelImporter.objects.filter(
+            row_data__file_import_attempt__file_importer__file_importer_batch__id=file_importer_batch.id
+        ).derive_values()
         LOGGER.debug("Deriving status values for File Import Attempts")
         # TODO: Make this more robust via Managers instead of Querysets...
         # This is needed to check all FIAs without any MIs!
-        FileImportAttempt.objects.all().derive_values()
+        FileImportAttempt.objects.filter(
+            file_importer__file_importer_batch__id=file_importer_batch.id
+        ).derive_values()
 
     def post_import_checks(self, file_importer_batch, **options):
         tqdm.write("All Batch-Level Errors")
@@ -728,7 +732,7 @@ class BaseImportCommand(BaseCommand):
         file_importer_batch.errors["duplicate_paths"] = duplicate_paths
         self.post_import_checks(file_importer_batch, **options)
         if not options["no_post_import_actions"]:
-            self.post_import_actions()
+            self.post_import_actions(file_importer_batch)
         else:
             tqdm.write(
                 "Skipping post import actions due to presence of no_post_import_actions=True"
