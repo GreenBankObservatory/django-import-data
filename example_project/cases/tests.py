@@ -229,7 +229,7 @@ class TestSanity(TestCase):
     def test_sanity(self):
         path = "/foo/bar.txt"
         file_importer, file_import_attempt = FileImporter.objects.create_with_attempt(
-            path=path
+            path=path, importer_name="TestSanity"
         )
         self.assertIsNotNone(file_importer)
         self.assertEqual(file_importer.latest_file_import_attempt.imported_from, path)
@@ -237,33 +237,33 @@ class TestSanity(TestCase):
         self.assertEqual(file_import_attempt.imported_from, path)
 
         row_data = RowData.objects.create(
-            file_import_attempt=file_import_attempt, data={"foo": "bar"}
+            file_import_attempt=file_import_attempt, row_num=0, data={"foo": "bar"}
         )
 
-        case_import_attempt = ModelImportAttempt.objects.create_for_model(
+        case_importer, case_import_attempt = ModelImporter.objects.create_with_attempt(
             model=Case,
-            row_data=row_data,
-            file_import_attempt=file_import_attempt,
             importee_field_data={"foo": "bar"},
             errors={},
             error_summary={},
+            row_data=row_data,
+            imported_by="TestSanity",
         )
 
         self.assertIsNone(case_import_attempt.importee)
         case = Case.objects.create(
-            case_num=123, model_import_attempt=case_import_attempt
+            case_num=123, model_import_attempt=case_import_attempt, subtype=1
         )
         self.assertIsNotNone(case_import_attempt.importee)
-        self.assertIn(case_import_attempt, row_data.import_attempts.all())
-        self.assertEqual(row_data.import_attempts.count(), 1)
+        self.assertIn(case_importer, row_data.model_importers.all())
+        self.assertEqual(row_data.model_importers.count(), 1)
 
-        structure_import_attempt = ModelImportAttempt.objects.create_for_model(
+        structer_importer, structure_import_attempt = ModelImporter.objects.create_with_attempt(
             model=Structure,
             row_data=row_data,
-            file_import_attempt=file_import_attempt,
             importee_field_data={"foo": "bar"},
             errors={},
             error_summary={},
+            imported_by="TestSanity",
         )
 
         self.assertIsNone(structure_import_attempt.importee)
@@ -272,8 +272,8 @@ class TestSanity(TestCase):
         )
         self.assertIsNotNone(structure_import_attempt.importee)
 
-        self.assertIn(structure_import_attempt, row_data.import_attempts.all())
-        self.assertEqual(row_data.import_attempts.count(), 2)
+        self.assertIn(structer_importer, row_data.model_importers.all())
+        self.assertEqual(row_data.model_importers.count(), 2)
 
         self.assertEqual(Structure.objects.count(), 1)
 
@@ -283,13 +283,14 @@ class TestSanity(TestCase):
             )
 
         expected_deletions = (
-            6,
+            8,
             {
                 # This is the important one: we _must_ cascade to our
                 # importees!
                 "cases.Case": 1,
-                "cases.Structure": 1,
                 "django_import_data.ModelImportAttempt": 2,
+                "cases.Structure": 1,
+                "django_import_data.ModelImporter": 2,
                 "django_import_data.RowData": 1,
                 "django_import_data.FileImportAttempt": 1,
             },
@@ -312,7 +313,11 @@ class TestImportExampleData(TestCase):
     """End-to-end tests using the import_example_data importer"""
 
     def assertDictIsSubset(self, first, second):
-        return self.assertLessEqual(first.items(), second.items())
+        return self.assertLessEqual(
+            first.items(),
+            second.items(),
+            f"Items missing from second item: {set(first.items()).difference(second.items())}",
+        )
 
     def test_good_data(self):
         self.assertEqual(Structure.objects.count(), 0)
@@ -364,13 +369,13 @@ class TestImportExampleData(TestCase):
             "case_num": 1,
             "status": "complete",
             "type": "A",
-            "subtype": "1",
+            "subtype": 1,
         }
         self.assertDictIsSubset(expected_case_values, case_values)
 
     def test_bad_email_no_durable(self):
         with self.assertRaisesRegex(
-            ValueError, "Row 0 of file test_data_bad.csv handled, but had 1 errors"
+            ValueError, "Row 2 of file test_data_bad.csv handled, but had 1 errors"
         ):
             # Note that no --durable is given here, so we will not be continuing past the bad email value.
             # PersonForm should raise an error
@@ -400,24 +405,15 @@ class TestImportExampleData(TestCase):
         file_importer = FileImporter.objects.first()
         self.assertEqual(file_importer.status, FileImporter.STATUSES.rejected.db_value)
         expected_fi_errors_by_row = {
-            "Row 0": {
+            2: {
                 "form_errors": [
                     {
-                        "alias": ["case_num"],
-                        "field": "case_num",
-                        "value": None,
-                        "errors": ["ValidationError(['This field is required.'])"],
+                        "alias": ["E-mail"],
+                        "field": "email",
+                        "value": "not an email",
+                        "errors": ["ValidationError(['Enter a valid email address.'])"],
                     }
-                ],
-                "conversion_errors": [
-                    {
-                        "error": "ValueError(\"invalid literal for int() with base 10: 'potato'\")",
-                        "aliases": {"case_num": ["case_num"]},
-                        "converter": "convert_case_num",
-                        "to_fields": ["case_num"],
-                        "from_fields": ["case_num"],
-                    }
-                ],
+                ]
             }
         }
         self.assertEqual(

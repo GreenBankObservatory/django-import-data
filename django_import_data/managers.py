@@ -93,6 +93,7 @@ class ModelImportAttemptManager(DerivedValuesManager):
     def create_for_model(
         self,
         model,
+        imported_by,
         derive_cached_values=False,
         propagate_derived_values=False,
         **kwargs,
@@ -102,6 +103,7 @@ class ModelImportAttemptManager(DerivedValuesManager):
             derive_cached_values=derive_cached_values,
             propagate_derived_values=propagate_derived_values,
             content_type=content_type,
+            imported_by=imported_by,
             **kwargs,
         )
         return model_import_attempt
@@ -137,9 +139,9 @@ class FileImportAttemptManager(DerivedValuesManager):
 
 
 class FileImporterManager(DerivedValuesManager):
-    def create_with_attempt(self, path, errors=None):
+    def create_with_attempt(self, path, importer_name, errors=None):
         FileImportAttempt = apps.get_model("django_import_data.FileImportAttempt")
-        file_importer = self.create()
+        file_importer = self.create(importer_name=importer_name, file_path=path)
         file_import_attempt = FileImportAttempt.objects.create(
             imported_from=path, file_importer=file_importer, errors=errors
         )
