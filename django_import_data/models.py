@@ -185,14 +185,6 @@ class AbstractBaseFileImporterBatch(ImportStatusModel, TrackedModel):
             total_num_mia_deletions += num_mia_deletions
             all_mia_deletions += all_mia_deletions
 
-        if propagate:
-            self.file_importers.update(
-                current_status=ImportStatusModel.CURRENT_STATUSES.deleted.db_value
-            )
-            self.refresh_from_db()
-            print(
-                f"FIB {self.id} deleted its imported models and set its current status to {self.current_status}"
-            )
         return (total_num_fia_deletions, total_num_mia_deletions, all_mia_deletions)
 
     @transaction.atomic
@@ -265,10 +257,7 @@ class AbstractBaseFileImporter(TrackedFileMixin, ImportStatusModel, TrackedModel
 
     def reimport(self):
         return call_command(
-            self.importer_name,
-            self.latest_file_import_attempt.imported_from,
-            overwrite=True,
-            durable=True,
+            self.importer_name, self.file_path, overwrite=True, durable=True
         )
 
     def derive_status(self):
@@ -315,14 +304,6 @@ class AbstractBaseFileImporter(TrackedFileMixin, ImportStatusModel, TrackedModel
             total_num_mia_deletions += num_fia_deletions
             all_mia_deletions += fia_deletions
 
-        if propagate:
-            self.current_status = ImportStatusModel.CURRENT_STATUSES.deleted.db_value
-            self.refresh_from_db()
-            print(
-                f"FI {self.id} deleted its imported models and set its current "
-                f"status to {self.get_current_status_display()}"
-            )
-
         return (total_num_fia_deletions, total_num_mia_deletions, all_mia_deletions)
 
     def condensed_errors_by_row_as_dicts(self):
@@ -345,21 +326,21 @@ class AbstractBaseFileImporter(TrackedFileMixin, ImportStatusModel, TrackedModel
     def is_acknowledged(self):
         return (
             self.latest_file_import_attempt.current_status
-            == FileImportAttempt.CURRENT_STATUSES.acknowledged.db_value
+            == self.CURRENT_STATUSES.acknowledged.db_value
         )
 
     @property
     def is_active(self):
         return (
             self.latest_file_import_attempt.current_status
-            == FileImportAttempt.CURRENT_STATUSES.active.db_value
+            == self.CURRENT_STATUSES.active.db_value
         )
 
     @property
     def is_deleted(self):
         return (
             self.latest_file_import_attempt.current_status
-            == FileImportAttempt.CURRENT_STATUSES.deleted.db_value
+            == self.CURRENT_STATUSES.deleted.db_value
         )
 
     @property
@@ -471,14 +452,9 @@ class AbstractBaseFileImportAttempt(
                 )
                 num_deletions += num_deletions_for_model_class
                 deletions += deletions_for_model_class
-        # if propagate:
-        #     ModelImportAttempt.objects.filter(
-        #         model_importer__row_data__file_import_attempt__id=self.id
-        #     ).update(current_status=ImportStatusModel.CURRENT_STATUSES.deleted.db_value)
-        #     self.refresh_from_db()
-        #     print(
-        #         f"FIA {self.id} deleted its imported models and set its current status to {self.current_status}"
-        #     )
+
+        self.current_status = self.CURRENT_STATUSES.deleted.db_value
+        self.save()
         return (num_deletions, deletions)
 
     def get_form_maps_used_during_import(self):
@@ -616,14 +592,6 @@ class AbstractBaseModelImporter(ImportStatusModel, TrackedModel):
             num_mia_deletions, mia_deletions = mia.delete_imported_models()
             total_num_mia_deletions += num_mia_deletions
 
-        # if propagate:
-        #     ModelImportAttempt.objects.filter(model_importer__id=self.id).update(
-        #         current_status=ImportStatusModel.CURRENT_STATUSES.deleted
-        #     )
-        #     self.refresh_from_db()
-        #     print(
-        #         f"MI {self.id} deleted its imported models and set its current status to {self.current_status}"
-        #     )
         return total_num_mia_deletions
 
 
@@ -757,7 +725,7 @@ class AbstractBaseModelImportAttempt(TrackedModel, ImportStatusModel):
             num_deletions += num_deletions_for_model_class
             deletions += deletions_for_model_class
 
-        self.current_status = ImportStatusModel.CURRENT_STATUSES.deleted.db_value
+        self.current_status = self.CURRENT_STATUSES.deleted.db_value
         self.save()
         self.refresh_from_db()
         print(

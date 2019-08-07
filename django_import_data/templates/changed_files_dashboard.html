@@ -8,18 +8,17 @@
 <form method="POST">{% csrf_token %}
     <table class="table">
         <tr>
-            <th title="Select for re-import">Re-import</th>
             <th title="The full path of the file on disk">Path</th>
             <th title="Hash of the file when it was imported">Hash at Import</th>
             <th title="Hash of the file when it was last checked">Hash on Disk</th>
             <th title="The time at which the file was last modified on disk">Last Modified</th>
             <th title="The time at which an attempt was last made to import the file">Last Imported On</th>
             <th title="The time at which this file was last checked for differences">Last Checked On</th>
+            <th title="Select the files you want to affect">Select</th>
         </tr>
     {% if files_changed_since_import %}
         {% for fi in files_changed_since_import %}
             <tr>
-                <td><input type="checkbox" name="file_importer_{{ fi.id }}"></td>
                 <td title="{{ fi.file_path }}"><a href="{% url 'fileimporter_detail' fi.id %}">{{ fi.name }}</a></td>
                 {% if fi.latest_file_import_attempt.hash_when_imported %}
                 <td title="{{ fi.latest_file_import_attempt.hash_when_imported }}">…{{ fi.latest_file_import_attempt.hash_when_imported|slice:"-8:" }}</td>
@@ -38,6 +37,7 @@
                 <td>{{ fi.file_modified_on }}</td>
                 <td>{{ fi.latest_file_import_attempt.created_on }}</td>
                 <td>{{ fi.hash_checked_on }}</td>
+                <td><input type="checkbox" name="file_importer_{{ fi.id }}"></td>
             </tr>
         {% endfor %}
     {% endif %}
@@ -46,6 +46,7 @@
     <p>No files have diverged from their state on the filesystem</p>
     {% endif %}
     <input type="submit" name="submit_reimport" value="Re-import Files" title="Import selected files, or import all above if none are selected">
-    <input type="submit" name="submit_refresh_from_filesystem" value="Re-check All Files" title="Refresh file data from the file system. This checks ALL known files, not just the above, and might take a long time!">
+    <input type="submit" name="submit_refresh_from_filesystem" value="Re-check Selected Files" title="Refresh file data from the file system for selected files!">
+    <input type="submit" name="submit_refresh_all_from_filesystem" value="Re-check All Files" title="Refresh file data from the file system. This checks ALL known files, not just the above, and might take a long time!">
 </form>
 {% endblock %}

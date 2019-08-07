@@ -150,47 +150,57 @@ def acknowledge_file_importer(request, pk):
 
 
 def changed_files_view(request):
-    def do_reimport(post):
+    def get_selected_file_importers(post):
         ids = [int(fi_id[len(prefix) :]) for fi_id in post if fi_id.startswith(prefix)]
-        if ids:
-            file_importers = (
-                FileImporter.objects.all().changed_files().filter(id__in=ids)
-            )
-        else:
-            file_importers = FileImporter.objects.all().changed_files()
+        file_importers = FileImporter.objects.filter(id__in=ids)
 
+        return file_importers
+
+    def do_reimport(file_importers):
         if file_importers:
+            errors = []
             for file_importer in file_importers:
-                file_importer.reimport()
+                try:
+                    file_importer.reimport()
+                except Exception as error:
+                    errors.append((file_importer, error))
 
-            messages.success(
-                request,
-                f"Successfully created {file_importers.count()} File Import Attempts ",
-            )
-
-            if file_importers.filter(
-                status=FileImportAttempt.STATUSES.rejected.name
-            ).exists():
-                messages.error(
-                    request,
-                    f"One or more {FileImporter._meta.verbose_name_plural} "
-                    "failed to reimport (no models were created)!",
-                )
-            elif file_importers.filter(
-                status=FileImportAttempt.STATUSES.created_dirty.name
-            ).exists():
-                messages.warning(
-                    request,
-                    f"One or more {FileImporter._meta.verbose_name_plural} "
-                    "had minor errors during their reimport process (but models "
-                    "were still created)!",
-                )
-            else:
+            num_errors = len(errors)
+            if not errors:
                 messages.success(
                     request,
-                    f"Successfully reimported all selected ({file_importers.count()}) "
-                    f"{FileImporter._meta.verbose_name_plural}!",
+                    f"Successfully created {file_importers.count()} File Import Attempts ",
                 )
+                if file_importers.filter(
+                    status=FileImportAttempt.STATUSES.rejected.name
+                ).exists():
+                    messages.error(
+                        request,
+                        f"One or more {FileImporter._meta.verbose_name_plural} "
+                        "failed to reimport (no models were created)!",
+                    )
+                elif file_importers.filter(
+                    status=FileImportAttempt.STATUSES.created_dirty.name
+                ).exists():
+                    messages.warning(
+                        request,
+                        f"One or more {FileImporter._meta.verbose_name_plural} "
+                        "had minor errors during their reimport process (but models "
+                        "were still created)!",
+                    )
+                else:
+                    messages.success(
+                        request,
+                        f"Successfully reimported all selected ({file_importers.count()}) "
+                        f"{FileImporter._meta.verbose_name_plural}!",
+                    )
+            elif num_errors == file_importers.count():
+                messages.error(
+                    request,
+                    f"No file import attempts were successful (i.e. had fatal errors)!\n{errors}",
+                )
+            else:
+                messages.warning(request, f"One or more fatal errors! \n{errors}")
         else:
             messages.warning(request, f"No File Importers selected!")
 
@@ -199,19 +209,30 @@ def changed_files_view(request):
         # create a form instance and populate it with data from the request:
         prefix = "file_importer_"
 
-        foo_reimport = request.POST.get("submit_reimport", None)
-        refresh_from_filesystem = request.POST.get(
+        submit_reimport = request.POST.get("submit_reimport", None)
+        submit_reimport_all = request.POST.get("submit_reimport_all", None)
+        submit_refresh_from_filesystem = request.POST.get(
             "submit_refresh_from_filesystem", None
         )
-        if foo_reimport or refresh_from_filesystem:
-            if foo_reimport:
-                do_reimport(request.POST)
-            else:
-                FileImporter.objects.all().refresh_from_filesystem()
-                messages.success(
-                    request,
-                    f"Successfully refreshed {FileImporter.objects.count()} importers from the filesystem",
-                )
+        submit_refresh_all_from_filesystem = request.POST.get(
+            "submit_refresh_all_from_filesystem", None
+        )
+
+        if submit_reimport or submit_refresh_from_filesystem:
+            file_importers = get_selected_file_importers(request.POST)
+
+        if submit_reimport_all or submit_refresh_all_from_filesystem:
+            file_importers = FileImporter.objects.all()
+
+        if submit_reimport or submit_reimport_all:
+            do_reimport(file_importers)
+
+        if submit_refresh_from_filesystem or submit_refresh_all_from_filesystem:
+            file_importers.refresh_from_filesystem()
+            messages.success(
+                request,
+                f"Successfully refreshed {file_importers.count()} importers from the filesystem",
+            )
 
         return HttpResponseRedirect(request.path)
 

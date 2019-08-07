@@ -87,7 +87,7 @@ class FileImporterBatchQuerySet(DerivedValuesQueryset):
         )
 
 
-class FileImporterQuerySet(DerivedValuesQueryset):
+class FileImporterQuerySet(TrackedFileQueryset, DerivedValuesQueryset):
     @transaction.atomic
     def propagate_derived_values(self):
         FileImporterBatch = apps.get_model("django_import_data.FileImporterBatch")
