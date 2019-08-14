@@ -1,10 +1,14 @@
+from datetime import timedelta
+
+from django.conf import settings
 from django.contrib import messages
 from django.http import HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
+from django.utils import timezone
 from django.views.generic import CreateView, FormView, UpdateView
 from django.views.generic.detail import DetailView
 from django.views.generic.list import ListView
-from django.urls import reverse
 
 from .models import (
     ModelImportAttempt,
@@ -13,6 +17,7 @@ from .models import (
     FileImporterBatch,
     RowData,
 )
+from .utils import humanize_timedelta
 
 
 class CreateFromImportAttemptView(CreateView):
@@ -201,8 +206,6 @@ def changed_files_view(request):
                 )
             else:
                 messages.warning(request, f"One or more fatal errors! \n{errors}")
-        else:
-            messages.warning(request, f"No File Importers selected!")
 
     # if this is a POST request we need to process the form data
     if request.method == "POST":
@@ -224,26 +227,45 @@ def changed_files_view(request):
         if submit_reimport_all or submit_refresh_all_from_filesystem:
             file_importers = FileImporter.objects.all()
 
-        if submit_reimport or submit_reimport_all:
-            do_reimport(file_importers)
+        if file_importers:
+            if submit_reimport or submit_reimport_all:
+                do_reimport(file_importers)
 
-        if submit_refresh_from_filesystem or submit_refresh_all_from_filesystem:
-            file_importers.refresh_from_filesystem()
-            messages.success(
-                request,
-                f"Successfully refreshed {file_importers.count()} importers from the filesystem",
-            )
+            if submit_refresh_from_filesystem or submit_refresh_all_from_filesystem:
+                file_importers.refresh_from_filesystem()
+                messages.success(
+                    request,
+                    f"Successfully refreshed {file_importers.count()} importers from the filesystem",
+                )
+        else:
+            messages.warning(request, f"No File Importers selected!")
 
         return HttpResponseRedirect(request.path)
 
     changed_files = FileImporter.objects.all().changed_files()
+    most_recent_check_time = (
+        FileImporter.objects.order_by("hash_checked_on")
+        .values_list("hash_checked_on", flat=True)
+        .last()
+    )
+
+    time_since_last_check = timezone.now() - most_recent_check_time
+    # TODO: Proper default in settings!
+    max_time_since_last_check = getattr(
+        settings, "MAX_TIME_SINCE_OLDEST_HASH_CHECK", timedelta(days=2)
+    )
+    if time_since_last_check > max_time_since_last_check:
+        messages.warning(
+            request,
+            f"It has been {humanize_timedelta(time_since_last_check)} since the file hashes were "
+            f"checked! Max allowed is {humanize_timedelta(max_time_since_last_check)}",
+        )
+
     return render(
         request,
         "changed_files_dashboard.html",
         {
             "files_changed_since_import": changed_files,
-            "last_hash_check": FileImporter.objects.order_by("created_on")
-            .last()
-            .hash_checked_on,
+            "most_recent_check_time": most_recent_check_time,
         },
     )

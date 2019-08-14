@@ -3,7 +3,7 @@
 {% block content %}
 
 <h1>Files That Have Changed Since Import</h1>
-<p>Last checked {{ file_importer.file_path }} on {{ last_hash_check }}</p>
+<p>Oldest file hash check occurred on {{ most_recent_check_time }}</p>
 <p>Shows all files that have had their contents or path changed. That is, files in which the hash has changed, or that have been deleted/moved.</p>
 <form method="POST">{% csrf_token %}
     <table class="table">
@@ -43,10 +43,10 @@
     {% endif %}
     </table>
     {% if not files_changed_since_import %}
-    <p>No files have diverged from their state on the filesystem</p>
+    <p style="color:green">No files have diverged from their state on the filesystem</p>
     {% endif %}
-    <input type="submit" name="submit_reimport" value="Re-import Files" title="Import selected files, or import all above if none are selected">
+    <input type="submit" name="submit_reimport" value="Re-import Selected Files" title="Import selected files">
     <input type="submit" name="submit_refresh_from_filesystem" value="Re-check Selected Files" title="Refresh file data from the file system for selected files!">
-    <input type="submit" name="submit_refresh_all_from_filesystem" value="Re-check All Files" title="Refresh file data from the file system. This checks ALL known files, not just the above, and might take a long time!">
+    {# <input type="submit" name="submit_refresh_all_from_filesystem" value="Re-check All Files" title="Refresh file data from the file system. This checks ALL known files, not just the above, and might take a long time!"> #}
 </form>
 {% endblock %}

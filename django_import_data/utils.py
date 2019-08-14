@@ -172,3 +172,21 @@ def get_str_from_nums(nums, join_str=", ", range_str="–", prefix=None):
             item_list.append(str(range_[0]) + range_str + str(range_[1]))
 
     return join_str.join(item_list)
+
+
+# Adapted from: https://gist.github.com/thatalextaylor/7408395
+def humanize_timedelta(td):
+    seconds = td.total_seconds()
+    sign_string = "-" if seconds < 0 else ""
+    seconds = abs(int(seconds))
+    days, seconds = divmod(seconds, 86400)
+    hours, seconds = divmod(seconds, 3600)
+    minutes, seconds = divmod(seconds, 60)
+    if days > 0:
+        return f"{sign_string}{days}d{hours}h{minutes}m{seconds}s"
+    elif hours > 0:
+        return f"{sign_string}{hours}h{minutes}m{seconds}s"
+    elif minutes > 0:
+        return f"{sign_string}{minutes}m{seconds}s"
+    else:
+        return f"{sign_string}{seconds}s"

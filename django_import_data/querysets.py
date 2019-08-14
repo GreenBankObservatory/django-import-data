@@ -20,7 +20,7 @@ class TrackedFileQueryset(QuerySet):
         report = {"missing": [], "changed": [], "unchanged": []}
         progress = tqdm(self.order_by("created_on"), unit="files")
         for instance in progress:
-            progress.desc = instance.file_path
+            # progress.desc = instance.file_path
             status = instance.refresh_from_filesystem()
             report[status].append(instance)
 
