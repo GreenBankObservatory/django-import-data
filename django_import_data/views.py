@@ -177,7 +177,7 @@ def changed_files_view(request):
                     f"Successfully created {file_importers.count()} File Import Attempts ",
                 )
                 if file_importers.filter(
-                    status=FileImportAttempt.STATUSES.rejected.name
+                    status=FileImportAttempt.STATUSES.rejected.db_value
                 ).exists():
                     messages.error(
                         request,
@@ -185,7 +185,7 @@ def changed_files_view(request):
                         "failed to reimport (no models were created)!",
                     )
                 elif file_importers.filter(
-                    status=FileImportAttempt.STATUSES.created_dirty.name
+                    status=FileImportAttempt.STATUSES.created_dirty.db_value
                 ).exists():
                     messages.warning(
                         request,
