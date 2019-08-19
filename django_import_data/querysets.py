@@ -1,5 +1,7 @@
 """Querysets for django_import_data"""
 
+from collections import defaultdict
+
 from tqdm import tqdm
 
 from django.apps import apps
@@ -12,16 +14,16 @@ class TrackedFileQueryset(QuerySet):
     """Contains operations for synchronizing with files on disk"""
 
     # Note: we don't need this to be atomic
-    def refresh_from_filesystem(self):
+    def refresh_from_filesystem(self, always_hash=False, quiet=False):
         """Recompute the hash_on_disk fields of all QuerySet members
 
         Returns a report of which members are missing, changed, or unchanged
         from the previous import check"""
-        report = {"missing": [], "changed": [], "unchanged": []}
-        progress = tqdm(self.order_by("created_on"), unit="files")
+        report = defaultdict(list)
+        progress = tqdm(self.order_by("created_on"), unit="files", disable=quiet)
         for instance in progress:
             # progress.desc = instance.file_path
-            status = instance.refresh_from_filesystem()
+            status = instance.refresh_from_filesystem(always_hash=always_hash)
             report[status].append(instance)
 
         return report

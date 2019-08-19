@@ -137,32 +137,34 @@ class TrackedFileMixin(models.Model):
     def file_changed(self):
         return self.refresh_from_filesystem() == "changed"
 
-    def refresh_from_filesystem(self):
-        # Always set hash_checked_on, regardless of whether file is found
-        self.hash_checked_on = now()
+    def refresh_from_filesystem(self, always_hash=False):
         try:
-            # Attempt to determine the hash of the file on disk
-            actual_hash_on_disk = hash_file(self.file_path)
+            # If the file can be found, we determine its modification time
+            # This is done regardless of whether the files contents have changed
+            fs_file_modified_on = make_aware(
+                datetime.fromtimestamp(os.path.getmtime(self.file_path))
+            )
         except FileNotFoundError:
             # If the file can't be found, we set the hash to None,
             # and the status to missing
             self.hash_on_disk = None
             status = "missing"
         else:
-            # If the file can be found, we determine its modification time
-            # This is done regardless of whether the files contents have changed
-            self.file_modified_on = make_aware(
-                datetime.fromtimestamp(os.path.getmtime(self.file_path))
-            )
-            # Now determine whether the contents of the file have changed since
-            # last check
-            if self.hash_on_disk != actual_hash_on_disk:
-                # If the file has changed, update its hash in the instance
-                self.hash_on_disk = actual_hash_on_disk
-                status = "changed"
+            if self.file_modified_on != fs_file_modified_on or always_hash:
+                self.file_modified_on = fs_file_modified_on
+                self.hash_checked_on = now()
+                # Attempt to determine the hash of the file on disk
+                actual_hash_on_disk = hash_file(self.file_path)
+                # Now determine whether the contents of the file have changed since
+                # last check
+                if self.hash_on_disk != actual_hash_on_disk:
+                    # If the file has changed, update its hash in the instance
+                    self.hash_on_disk = actual_hash_on_disk
+                    status = "changed"
+                else:
+                    status = "unchanged"
             else:
-                status = "unchanged"
+                status = "skipped"
 
-        # Save and return status
-        self.save()
+            self.save()
         return status
