@@ -50,6 +50,6 @@ class Command(BaseCommand):
             )
 
             for status, file_importers in report.items():
-                if status in ["changed", "missing"]:
+                if status in ["changed"]:
                     the_paths = "\n".join([fi.file_path for fi in file_importers])
                     print(f"{status}\n{'-' * len(status)}\n{the_paths}\n")
