@@ -17,7 +17,7 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("--paths", nargs="+")
         parser.add_argument("--since", type=parse_date)
-        parser.add_argument("--quiet", action="store_true")
+        parser.add_argument("--no-progress", action="store_true")
         parser.add_argument("--always-hash", action="store_true")
 
     @transaction.atomic
@@ -25,6 +25,7 @@ class Command(BaseCommand):
         since = kwargs.get("since", None)
         paths = kwargs.get("paths", None)
         quiet = kwargs.get("quiet", False)
+        no_progress = kwargs.get("no_progress", False)
         file_importers = FileImporter.objects.all()
         since_str = ""
 
@@ -41,12 +42,36 @@ class Command(BaseCommand):
 
         if not quiet:
             print(
+                "The following recently-modified files do not have corresponding File Importers:"
+            )
+            print(
+                "\n  "
+                + "\n  ".join(
+                    sorted(
+                        set(paths).difference(
+                            set(file_importers.values_list("file_path", flat=True))
+                        )
+                    )
+                )
+            )
+            print("\nThe following recently-modified files will be refreshed:")
+            print(
+                "\n  "
+                + "\n  ".join(
+                    sorted(
+                        set(paths).intersection(
+                            set(file_importers.values_list("file_path", flat=True))
+                        )
+                    )
+                )
+            )
+            print(
                 f"Refreshing {file_importers.count()} File Importers "
                 f"from the filesystem{since_str}"
             )
         if file_importers.count():
             report = file_importers.refresh_from_filesystem(
-                quiet=quiet, always_hash=kwargs["always_hash"]
+                quiet=no_progress, always_hash=kwargs["always_hash"]
             )
 
             for status, file_importers in report.items():
