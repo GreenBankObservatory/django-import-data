@@ -28,6 +28,14 @@ def range_notation_to_list_of_ranges(ranges_str):
         if range_end is None:
             list_of_ranges.append(range_start)
         else:
+            try:
+                if range_end < range_start:
+                    raise NumRangesException(
+                        f"Range end is greater than range start for range: [{range_start}, {range_end}]"
+                    )
+            # If we can't do the comparison, just don't worry about it
+            except TypeError:
+                pass
             list_of_ranges.append((range_start, range_end))
 
     return list_of_ranges
@@ -162,4 +170,3 @@ def itemAndNext(iterable):
         item = next_item
 
     yield (item, None)
-
