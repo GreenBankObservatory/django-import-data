@@ -1,5 +1,7 @@
 from enum import Enum, EnumMeta
 import hashlib
+import os
+import re
 
 from django.core.serializers.json import DjangoJSONEncoder
 from django.contrib.gis.geos import Point
@@ -190,3 +192,26 @@ def humanize_timedelta(td):
         return f"{sign_string}{minutes}m{seconds}s"
     else:
         return f"{sign_string}{seconds}s"
+
+
+def determine_files_to_process(paths, pattern=None):
+    """Find all files in given paths that match given pattern; sort and return"""
+    if pattern:
+        pattern = re.compile(pattern)
+    matched_files = []
+    for path in paths:
+        if os.path.isfile(path):
+            matched_files.append(path)
+        elif os.path.isdir(path):
+            for root, dirs, files in os.walk(path):
+                matched_files.extend(
+                    [
+                        os.path.join(path, root, file)
+                        for file in files
+                        if not pattern or pattern.match(file)
+                    ]
+                )
+        else:
+            raise ValueError(f"Given path {path!r} is not a directory or file!")
+
+    return sorted(matched_files)

@@ -19,7 +19,7 @@ from django.utils import timezone
 
 from tqdm import tqdm
 
-from django_import_data.utils import hash_file
+from django_import_data.utils import hash_file, determine_files_to_process
 
 LOGGER = logging.getLogger(__name__)
 
@@ -157,26 +157,7 @@ class BaseImportCommand(BaseCommand):
 
     @staticmethod
     def determine_files_to_process(paths, pattern=None):
-        """Find all files in given paths that match given pattern; sort and return"""
-        if pattern:
-            pattern = re.compile(pattern)
-        matched_files = []
-        for path in paths:
-            if os.path.isfile(path):
-                matched_files.append(path)
-            elif os.path.isdir(path):
-                for root, dirs, files in os.walk(path):
-                    matched_files.extend(
-                        [
-                            os.path.join(path, root, file)
-                            for file in files
-                            if not pattern or pattern.match(file)
-                        ]
-                    )
-            else:
-                raise ValueError(f"Given path {path!r} is not a directory or file!")
-
-        return sorted(matched_files)
+        determine_files_to_process(paths, pattern)
 
     # TODO: This does NOT HANDLE duplicate headers! Behavior is not well
     # defined, and there WILL BE data loss if there are duplicate headers,
