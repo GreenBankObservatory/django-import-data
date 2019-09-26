@@ -6,7 +6,17 @@ from tqdm import tqdm
 
 from django.apps import apps
 from django.db import transaction
-from django.db.models import F, OuterRef, Subquery, Count, Q
+from django.db.models import (
+    F,
+    OuterRef,
+    Subquery,
+    Count,
+    Q,
+    Case as Case_,
+    When,
+    Value,
+    BooleanField,
+)
 from django.db.models.query import QuerySet
 
 
@@ -226,6 +236,37 @@ class FileImportAttemptQuerySet(DerivedValuesQueryset):
     def annotate_num_model_importers(self):
         return self.annotate(
             num_model_importers=Count("row_datas__model_importers", distinct=True)
+        )
+
+    def annotate_is_latest(self):
+        FileImportAttempt = apps.get_model("django_import_data.FileImportAttempt")
+        latest_fia_id = (
+            # Get all FIAs with same FI as the outer one
+            FileImportAttempt.objects.filter(
+                file_importer=OuterRef("file_importer__id")
+            )
+            .order_by("-created_on")
+            .values("id")[:1]
+        )
+        return self.annotate(
+            latest_fia_id=Subquery(latest_fia_id),
+            is_latest=Case_(
+                When(id=F("latest_fia_id"), then=Value(True)),
+                default=Value(False),
+                output_field=BooleanField(),
+            ),
+        )
+
+    def annotate_has_fi_path(self):
+        return self.annotate(
+            has_fi_path=Case_(
+                When(
+                    Q(imported_from=F("file_importer__file_path")),
+                    then=Value(False),
+                ),
+                default=Value(True),
+                output_field=BooleanField(),
+            )
         )
 
 
