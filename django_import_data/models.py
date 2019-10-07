@@ -406,6 +406,23 @@ class AbstractBaseFileImportAttempt(
     def derive_cached_values(self):
         self.status = self.derive_status()
 
+    def get_creations(self):
+        creations = {}
+        for ct in ContentType.objects.filter(
+            id__in=self.row_datas.values(
+                "model_importers__model_import_attempts__content_type"
+            )
+        ).distinct():
+            model_class = ct.model_class()
+            creations[model_class] = (
+                model_class.objects.filter(
+                    model_import_attempt__model_importer__row_data__file_import_attempt=self
+                )
+                .select_related("model_import_attempt__model_importer__row_data")
+                .order_by("model_import_attempt__model_importer__row_data__row_num")
+            )
+        return creations
+
     def save(
         self, *args, derive_cached_values=True, propagate_derived_values=True, **kwargs
     ):
@@ -423,6 +440,13 @@ class AbstractBaseFileImportAttempt(
     def name(self):
         return os.path.basename(self.imported_from)
 
+    @cached_property
+    def models_to_reimport(self):
+        try:
+            return self.importer.Command.MODELS_TO_REIMPORT
+        except AttributeError:
+            return []
+
     # TODO: Unit tests!
     @transaction.atomic
     def delete_imported_models(self, propagate=True):
@@ -430,35 +454,44 @@ class AbstractBaseFileImportAttempt(
 
         num_deletions = 0
         deletions = Counter()
+        if self.models_to_reimport:
+            model_classes_to_delete = self.models_to_reimport
+            print(f"Using given MODELS_TO_REIMPORT: {model_classes_to_delete}")
+        else:
+            model_classes_to_delete = [
+                ct.model_class()
+                for ct in ContentType.objects.filter(
+                    id__in=self.row_datas.values(
+                        "model_importers__model_import_attempts__content_type"
+                    )
+                )
+                .prefetch_related(
+                    "model_importers__model_import_attempts__content_type"
+                )
+                .distinct()
+            ]
+            print(f"Derived model_classes_to_delete: {model_classes_to_delete}")
         # For every ContentType imported by this FIA...
-        for ct in ContentType.objects.filter(
-            id__in=self.row_datas.values(
-                "model_importers__model_import_attempts__content_type"
+        for model_class in model_classes_to_delete:
+            to_delete = model_class.objects.filter(
+                model_import_attempt__model_importer__row_data__file_import_attempt=self
             )
-        ).distinct():
-
-            try:
-                # ...get a queryset of all model instances that were imported...
-                to_delete = ct.model_class().objects.filter(
-                    model_import_attempt__model_importer__row_data__file_import_attempt=self
-                )
-            except FieldError:
-                # TODO: Warning?
-                raise
-            else:
-                # ...and delete them:
-                num_deletions_for_model_class, deletions_for_model_class = (
-                    to_delete.delete()
-                )
-                num_deletions += num_deletions_for_model_class
-                deletions += deletions_for_model_class
+            num_deletions_for_model_class, deletions_for_model_class = (
+                to_delete.delete()
+            )
+            num_deletions += num_deletions_for_model_class
+            deletions += deletions_for_model_class
 
         self.current_status = self.CURRENT_STATUSES.deleted.db_value
         self.save()
         return (num_deletions, deletions)
 
+    @cached_property
+    def importer(self):
+        return import_module(self.imported_by)
+
     def get_form_maps_used_during_import(self):
-        return import_module(f"{self.imported_by}").Command.FORM_MAPS
+        return self.importer.Command.FORM_MAPS
 
     def get_field_maps_used_during_import(self):
         form_maps = self.get_field_maps_used_during_import()
@@ -864,3 +897,12 @@ class AbstractBaseAuditedModel(models.Model):
             return self.model_import_attempt.file_import_attempt.imported_from
         except AttributeError:
             return None
+
+    def file_import_attempt_was_successful(self):
+        try:
+            return (
+                self.model_import_attempt.file_import_attempt.file_importer.status
+                == FileImporter.STATUSES.created_clean.db_value
+            )
+        except AttributeError:
+            raise

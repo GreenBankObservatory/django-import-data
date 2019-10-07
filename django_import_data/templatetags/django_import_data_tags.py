@@ -56,6 +56,14 @@ def model_name(model):
 
 
 @register.filter
+def model_name_plural(model):
+    try:
+        return model._meta.verbose_name_plural
+    except AttributeError:
+        return None
+
+
+@register.filter
 def gethash(thing):
     return abs(hash(thing))
 

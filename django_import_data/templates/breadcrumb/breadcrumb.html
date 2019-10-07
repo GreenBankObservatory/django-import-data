@@ -154,3 +154,9 @@
       </ol>
     </div>
 </nav>
+
+{% if current == 'importee' and not importee.file_import_attempt_was_successful %}
+<div class="batch-rejected">
+    <p>Warning: May contain incomplete information! The <a href="{{ importee.model_import_attempt.model_importer.row_data.file_import_attempt.file_importer.get_absolute_url }}">File Importer</a> this {{ importee|model_name }} is from failed to import properly! You will need to fix this, then re-import the file.</p>
+</div>
+{% endif %}

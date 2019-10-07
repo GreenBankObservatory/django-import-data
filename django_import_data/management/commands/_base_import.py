@@ -155,10 +155,6 @@ class BaseImportCommand(BaseCommand):
         parser.add_argument("paths", nargs="+")
         self.add_core_arguments(parser)
 
-    @staticmethod
-    def determine_files_to_process(paths, pattern=None):
-        determine_files_to_process(paths, pattern)
-
     # TODO: This does NOT HANDLE duplicate headers! Behavior is not well
     # defined, and there WILL BE data loss if there are duplicate headers,
     # both with important information
@@ -653,7 +649,7 @@ class BaseImportCommand(BaseCommand):
     def handle(self, *args, **options):
         self.verbosity = options["verbosity"]
         try:
-            files_to_process = self.determine_files_to_process(
+            files_to_process = determine_files_to_process(
                 options["paths"], pattern=options["pattern"]
             )
         except ValueError as error:
