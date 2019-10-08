@@ -131,7 +131,11 @@ class AbstractBaseFileImporterBatch(ImportStatusModel, TrackedModel):
     @cached_property
     def cli(self):
         clean_options = {}
-        for key, value in self.kwargs.items():
+        if self.kwargs:
+            kwargs = self.kwargs
+        else:
+            kwargs = {}
+        for key, value in kwargs.items():
             if key not in (
                 "settings",
                 "start_index",
@@ -323,29 +327,20 @@ class AbstractBaseFileImporter(TrackedFileMixin, ImportStatusModel, TrackedModel
     #     return self.latest_file_import_attempt.current_status
 
     @property
+    def file_changed(self):
+        return self.hash_on_disk != self.latest_file_import_attempt.hash_when_imported
+
+    @property
     def is_acknowledged(self):
-        return (
-            self.latest_file_import_attempt.current_status
-            == self.CURRENT_STATUSES.acknowledged.db_value
-        )
+        return self.latest_file_import_attempt.is_acknowledged
 
     @property
     def is_active(self):
-        return (
-            self.latest_file_import_attempt.current_status
-            == self.CURRENT_STATUSES.active.db_value
-        )
+        return self.latest_file_import_attempt.is_active
 
     @property
     def is_deleted(self):
-        return (
-            self.latest_file_import_attempt.current_status
-            == self.CURRENT_STATUSES.deleted.db_value
-        )
-
-    @property
-    def file_changed(self):
-        return self.hash_on_disk != self.latest_file_import_attempt.hash_when_imported
+        return self.latest_file_import_attempt.is_deleted
 
 
 class AbstractBaseFileImportAttempt(
@@ -564,6 +559,18 @@ class AbstractBaseFileImportAttempt(
             self.save()
             return True
         return False
+
+    @property
+    def is_acknowledged(self):
+        return self.current_status == self.CURRENT_STATUSES.acknowledged.db_value
+
+    @property
+    def is_active(self):
+        return self.current_status == self.CURRENT_STATUSES.active.db_value
+
+    @property
+    def is_deleted(self):
+        return self.current_status == self.CURRENT_STATUSES.deleted.db_value
 
 
 class AbstractBaseModelImporter(ImportStatusModel, TrackedModel):
@@ -899,10 +906,8 @@ class AbstractBaseAuditedModel(models.Model):
             return None
 
     def file_import_attempt_was_successful(self):
-        try:
-            return (
-                self.model_import_attempt.file_import_attempt.file_importer.status
-                == FileImporter.STATUSES.created_clean.db_value
-            )
-        except AttributeError:
-            raise
+        return (
+            self.model_import_attempt.file_import_attempt.file_importer.status
+            == FileImporter.STATUSES.created_clean.db_value
+            or self.model_import_attempt.file_import_attempt.file_importer.is_acknowledged
+        )
