@@ -229,8 +229,13 @@ def determine_files_to_process(paths, pattern=None, maxdepth=2):
         cmd += ["-maxdepth", "2"]
     cmd += ["-type", "f"]
     if pattern:
-        cmd += ["-regex", pattern]
+        cmd += ["-regextype", "posix-extended", "-regex", pattern]
+
     try:
         return sorted(check_output(cmd).decode("utf-8").splitlines())
-    except CalledProcessError:
-        return determine_files_to_process_slow(pattern)
+    except CalledProcessError as error:
+        print(
+            "WARNING: Falling back to determine_files_to_process_slow due to error in "
+            f"determine_files_to_process:\n{error}"
+        )
+        return determine_files_to_process_slow(paths, pattern)
