@@ -411,8 +411,8 @@ class BaseImportCommand(BaseCommand):
             rows = []
 
         LOGGER.debug(f"Got {len(rows)} rows from {path}")
-        file_level_info, file_level_errors_ = self.file_level_checks(rows)
-        file_level_errors.update(file_level_errors)
+        file_level_info, more_file_level_errors = self.file_level_checks(rows)
+        file_level_errors.update(more_file_level_errors)
         if not os.path.isfile(path):
             if "misc" in file_level_errors:
                 file_level_errors["misc"].append(["file_missing"])
