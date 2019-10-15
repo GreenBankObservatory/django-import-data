@@ -224,6 +224,33 @@ class ModelImporterQuerySet(DerivedValuesQueryset):
             current_status=F("row_data__file_import_attempt__current_status")
         )
 
+    def annotate_latest_mia_errors(self):
+        ModelImportAttempt = apps.get_model("django_import_data.ModelImportAttempt")
+        latest_mia_errors = (
+            # Get all MIAs with same MI as the outer one
+            ModelImportAttempt.objects.filter(model_importer=OuterRef("id"))
+            .order_by("-created_on")
+            .values("errors")[:1]
+        )
+        return self.annotate(latest_mia_errors=Subquery(latest_mia_errors))
+
+    def annotate_latest_mia_importee_field_data(self):
+        ModelImportAttempt = apps.get_model("django_import_data.ModelImportAttempt")
+        latest_mia_importee_field_data = (
+            # Get all MIAs with same MI as the outer one
+            ModelImportAttempt.objects.filter(model_importer=OuterRef("id"))
+            .order_by("-created_on")
+            .values("importee_field_data")[:1]
+        )
+        return self.annotate(
+            latest_mia_importee_field_data=Subquery(latest_mia_importee_field_data)
+        )
+
+    def annotate_latest_mia_data(self):
+        return (
+            self.annotate_latest_mia_errors().annotate_latest_mia_importee_field_data()
+        )
+
 
 class FileImportAttemptQuerySet(DerivedValuesQueryset):
     @transaction.atomic
@@ -260,10 +287,7 @@ class FileImportAttemptQuerySet(DerivedValuesQueryset):
     def annotate_has_fi_path(self):
         return self.annotate(
             has_fi_path=Case_(
-                When(
-                    Q(imported_from=F("file_importer__file_path")),
-                    then=Value(False),
-                ),
+                When(Q(imported_from=F("file_importer__file_path")), then=Value(False)),
                 default=Value(True),
                 output_field=BooleanField(),
             )
@@ -284,4 +308,24 @@ class ModelImportAttemptQuerySet(DerivedValuesQueryset):
             current_status=F(
                 "model_importer__row_data__file_import_attempt__current_status"
             )
+        )
+
+    # TODO: WIP
+    def annotate_is_latest(self):
+        ModelImportAttempt = apps.get_model("django_import_data.ModelImportAttempt")
+        latest_mia_id = (
+            # Get all MIAs with same MI as the outer one
+            ModelImportAttempt.objects.filter(
+                model_importer=OuterRef("model_importer__id")
+            )
+            .order_by("-created_on")
+            .values("id")[:1]
+        )
+        return self.annotate(
+            latest_mia_id=Subquery(latest_mia_id),
+            is_latest=Case_(
+                When(id=F("latest_mia_id"), then=Value(True)),
+                default=Value(False),
+                output_field=BooleanField(),
+            ),
         )

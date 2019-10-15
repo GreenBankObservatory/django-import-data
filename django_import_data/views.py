@@ -40,7 +40,6 @@ class CreateFromImportAttemptView(CreateView):
         # form.save()
         try:
             model_import_attempt = ModelImportAttempt.objects.create_for_model(
-                row_data=self.model_import_attempt.row_data,
                 importee_field_data=form.cleaned_data,
                 errors={},
                 model_importer=self.model_import_attempt.model_importer,
