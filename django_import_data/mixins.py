@@ -144,8 +144,9 @@ class TrackedFileMixin(models.Model):
             fs_file_modified_on = make_aware(
                 datetime.fromtimestamp(os.path.getmtime(self.file_path))
             )
-        except FileNotFoundError:
-            # If the file can't be found, we set the hash to None,
+        except (FileNotFoundError, OSError):
+            # If the file can't be found (or the name is invalid, and an OSError
+            # is reported), we set the hash to None,
             # and the status to missing
             self.hash_on_disk = None
             status = "missing"
