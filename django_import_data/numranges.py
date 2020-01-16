@@ -29,7 +29,7 @@ def range_notation_to_list_of_ranges(ranges_str):
             list_of_ranges.append(range_start)
         else:
             try:
-                if range_end < range_start:
+                if int(range_end) < int(range_start):
                     raise NumRangesException(
                         f"Range end is greater than range start for range: [{range_start}, {range_end}]"
                     )
