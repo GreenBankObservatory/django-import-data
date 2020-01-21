@@ -16,6 +16,7 @@ from django.db.models import (
     When,
     Value,
     BooleanField,
+    Max,
 )
 from django.db.models.query import QuerySet
 
@@ -161,6 +162,9 @@ class FileImporterQuerySet(TrackedFileQueryset, DerivedValuesQueryset):
                 distinct=True,
             )
         )
+
+    def annotate_last_imported(self):
+        return self.annotate(last_imported=Max("file_import_attempts__created_on"))
 
 
 class RowDataQuerySet(DerivedValuesQueryset):
