@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "django_import_data"
-version = "0.1.0"
+version = "0.1.1"
 description = "Simplifies imports of messy external data into Django"
 authors = ["Thomas Chamberlin <tchamber@nrao.edu>"]
 license = "MIT"

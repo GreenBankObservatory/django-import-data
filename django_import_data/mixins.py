@@ -118,7 +118,6 @@ class TrackedFileMixin(models.Model):
     )
     hash_on_disk = SensibleCharField(
         max_length=40,
-        unique=True,
         null=True,
         blank=True,
         help_text="SHA-1 hash of the file on disk. If blank, the file is missing",
