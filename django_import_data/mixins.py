@@ -103,8 +103,7 @@ class TrackedModel(models.Model):
 
 
 class IsActiveModel(models.Model):
-    """An abstract class that allows objects to be 'soft' deleted.
-    """
+    """An abstract class that allows objects to be 'soft' deleted."""
 
     is_active = models.BooleanField(default=True, db_index=True)
 
@@ -118,7 +117,6 @@ class TrackedFileMixin(models.Model):
     )
     hash_on_disk = SensibleCharField(
         max_length=40,
-        null=True,
         blank=True,
         help_text="SHA-1 hash of the file on disk. If blank, the file is missing",
     )
